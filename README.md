@@ -7,7 +7,7 @@ rbgrep is a line-oriented search cli tool that recursively searches **ruby files
 
 ### Screenshot of search results
 
-![A screenshot of a sample search with rbgrep](assets/rbgrep.jpg)
+![A screenshot of a sample search with rbgrep](assets/rbgrep.png)
 
 ## Install
 
