@@ -375,7 +375,7 @@ impl fmt::Display for LineResult {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let start_text = &self.line[..self.column_start];
         let match_text = &self.line[self.column_start..self.column_end];
-        let end = if match_text.starts_with("\"") || match_text.starts_with("'") {
+        let end = if match_text.starts_with('"') || match_text.starts_with('\'') {
             self.column_end + 2
         } else {
             self.column_end
