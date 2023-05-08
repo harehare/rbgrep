@@ -346,7 +346,7 @@ impl Cli {
 
 fn read_stdin() -> Result<String> {
     io::read_to_string(io::stdin())
-        .map(|q| q.replace("\n", ""))
+        .map(|q| q.replace('\n', ""))
         .map_err(|_| anyhow!("error"))
 }
 
