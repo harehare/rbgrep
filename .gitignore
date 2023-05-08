@@ -5,4 +5,5 @@ target/
 
 *.pdb
 
+*.rb
 work

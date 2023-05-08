@@ -1,10 +1,11 @@
 use crate::matcher::{RegexMatcher, TextMatcher};
 use crate::source::{GrepOptions, GrepResult, Node, Source};
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use clap::Parser;
 use colored::*;
 use ignore::{overrides::OverrideBuilder, types::TypesBuilder, WalkBuilder};
 use rayon::prelude::*;
+use std::io;
 use std::{
     env, fs,
     io::{stdout, BufWriter, Write},
@@ -16,7 +17,7 @@ use tap::Tap;
 #[derive(Parser)]
 #[command(name = "rbgrep")]
 #[command(author = "Takahiro Sato. <harehare1110@gmail.com>")]
-#[command(version = "0.1.0")]
+#[command(version = "0.1.1")]
 #[command(
     about = "rbgrep is a line-oriented search cli tool that recursively searches ruby files in the current directory for a regex patterns.",
     long_about = None
@@ -114,7 +115,7 @@ pub struct Cli {
     #[arg(short, long)]
     quiet: bool,
 
-    query: String,
+    query: Option<String>,
     path: Vec<String>,
 }
 
@@ -138,7 +139,7 @@ impl Cli {
             .unwrap_or(vec![".".to_string()]);
 
         if self.regexp {
-            match RegexMatcher::new(self.query.as_str()) {
+            match RegexMatcher::new(self.read_query().as_str()) {
                 Ok(m) => {
                     let results =
                         path_list
@@ -221,7 +222,7 @@ impl Cli {
                 Err(e) => Err(anyhow::anyhow!(e)),
             }
         } else {
-            let m = TextMatcher::new(self.query.to_string(), self.exact_match, self.ignore_case);
+            let m = TextMatcher::new(self.read_query(), self.exact_match, self.ignore_case);
             let results = path_list
                 .par_iter()
                 .flat_map(|path| {
@@ -297,6 +298,13 @@ impl Cli {
         }
     }
 
+    fn read_query(&self) -> String {
+        match &self.query {
+            Some(query) => query.clone(),
+            None => read_stdin().unwrap_or("".to_string()),
+        }
+    }
+
     fn entries(&self, path: &str) -> Vec<String> {
         if Path::new(path).is_file() {
             vec![path.to_string()]
@@ -334,6 +342,12 @@ impl Cli {
                 .collect::<Vec<String>>()
         }
     }
+}
+
+fn read_stdin() -> Result<String> {
+    io::read_to_string(io::stdin())
+        .map(|q| q.replace("\n", ""))
+        .map_err(|_| anyhow!("error"))
 }
 
 #[cfg(test)]
@@ -415,7 +429,7 @@ mod tests {
             max_depth: None,
             quiet,
             exclude: Some("test".to_string()),
-            query: query,
+            query: Some(query),
             path: vec![dir.to_str().unwrap().to_string()],
         };
 
@@ -452,7 +466,7 @@ mod tests {
             max_depth: None,
             quiet: false,
             exclude: Some("test".to_string()),
-            query: query,
+            query: Some(query),
             path: vec![file.path().to_str().unwrap().to_string()],
         };
 
