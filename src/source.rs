@@ -2932,188 +2932,192 @@ mod tests {
 
     #[rstest]
     // class
-    #[case("Class", line_result("class Class < vvv; end".to_string(), 0, 6, 11, vec![Node::Class]))]
-    #[case("Class2", line_result("class Class < vvv; class Class2; end; end".to_string(), 0, 25, 31, vec![Node::Class, Node::Class]))]
-    #[case("SingletonClass", line_result("class << SingletonClass; def test; end end".to_string(), 0, 9, 23, vec![Node::SClass]))]
+    #[case("Class", None, line_result("class Class < vvv; end".to_string(), 0, 6, 11, vec![Node::Class]))]
+    #[case("Class2", None, line_result("class Class < vvv; class Class2; end; end".to_string(), 0, 25, 31, vec![Node::Class, Node::Class]))]
+    #[case("SingletonClass", None, line_result("class << SingletonClass; def test; end end".to_string(), 0, 9, 23, vec![Node::SClass]))]
     // module
-    #[case("Module", line_result("module Module; def test; end; end".to_string(), 0, 7, 13, vec![Node::Module]))]
+    #[case("Module", None, line_result("module Module; def test; end; end".to_string(), 0, 7, 13, vec![Node::Module]))]
     // def
-    #[case("def_test", line_result("def def_test; end".to_string(), 0, 4, 12, vec![Node::Def]))]
-    #[case("def_test", line_result("def def_test; puts 'bar'; end".to_string(), 0, 4, 12, vec![Node::Def]))]
-    #[case("rest_test", line_result("def m(*rest_test); end".to_string(), 0, 6, 15, vec![Node::Def, Node::Arg, Node::Restarg]))]
-    #[case("undef_test", line_result("undef undef_test, :test".to_string(), 0, 6, 17, vec![Node::Undef, Node::Sym]))]
-    #[case("foo", line_result("def x.foo(args); puts 'v'; end".to_string(), 0, 6, 9, vec![Node::Defs]))]
-    #[case("foo", line_result("def m(**foo); end".to_string(), 0, 6, 9, vec![Node::Def, Node::Arg, Node::Kwrestarg]))]
-    #[case("foo", line_result("def m(foo: 1); end".to_string(), 0, 6, 9, vec![Node::Def, Node::Arg, Node::Kwoptarg]))]
-    #[case("1", line_result("def m(foo: 1); end".to_string(), 0, 11, 12, vec![Node::Def, Node::Arg, Node::Kwoptarg, Node::Int]))]
-    #[case("nil", line_result("def m(**nil); end".to_string(), 0, 6, 11, vec![Node::Def, Node::Arg, Node::Kwnilarg]))]
-    #[case("bar", line_result("def foo(bar:); end".to_string(), 0, 8, 11, vec![Node::Def, Node::Arg, Node::Kwarg]))]
-    #[case("...", line_result("def m(...); end".to_string(), 0, 6, 9, vec![Node::Def, Node::Arg, Node::ForwardArg]))]
+    #[case("def_test", None, line_result("def def_test; end".to_string(), 0, 4, 12, vec![Node::Def]))]
+    #[case("def_test", None, line_result("def def_test; puts 'bar'; end".to_string(), 0, 4, 12, vec![Node::Def]))]
+    #[case("rest_test", None, line_result("def m(*rest_test); end".to_string(), 0, 6, 15, vec![Node::Def, Node::Arg, Node::Restarg]))]
+    #[case("undef_test", None, line_result("undef undef_test, :test".to_string(), 0, 6, 17, vec![Node::Undef, Node::Sym]))]
+    #[case("foo", None, line_result("def x.foo(args); puts 'v'; end".to_string(), 0, 6, 9, vec![Node::Defs]))]
+    #[case("foo", None, line_result("def m(**foo); end".to_string(), 0, 6, 9, vec![Node::Def, Node::Arg, Node::Kwrestarg]))]
+    #[case("foo", None, line_result("def m(foo: 1); end".to_string(), 0, 6, 9, vec![Node::Def, Node::Arg, Node::Kwoptarg]))]
+    #[case("1", None, line_result("def m(foo: 1); end".to_string(), 0, 11, 12, vec![Node::Def, Node::Arg, Node::Kwoptarg, Node::Int]))]
+    #[case("nil", None, line_result("def m(**nil); end".to_string(), 0, 6, 11, vec![Node::Def, Node::Arg, Node::Kwnilarg]))]
+    #[case("bar", None, line_result("def foo(bar:); end".to_string(), 0, 8, 11, vec![Node::Def, Node::Arg, Node::Kwarg]))]
+    #[case("...", None, line_result("def m(...); end".to_string(), 0, 6, 9, vec![Node::Def, Node::Arg, Node::ForwardArg]))]
     // sym
-    #[case("sym", line_result("var.try(:sym)".to_string(), 0, 8, 12, vec![Node::Send, Node::Sym]))]
-    #[case("foo", line_result(":\"#{foo}\"".to_string(), 0, 4, 7, vec![Node::Dsym, Node::Begin, Node::Send]))]
+    #[case("sym", None, line_result("var.try(:sym)".to_string(), 0, 8, 12, vec![Node::Send, Node::Sym]))]
+    #[case("foo", None, line_result(":\"#{foo}\"".to_string(), 0, 4, 7, vec![Node::Dsym, Node::Begin, Node::Send]))]
     // alias
-    #[case("alias_test", line_result("alias :alias_test :new_alias".to_string(), 0, 6, 17, vec![Node::Alias, Node::Sym]))]
+    #[case("alias_test", None, line_result("alias :alias_test :new_alias".to_string(), 0, 6, 17, vec![Node::Alias, Node::Sym]))]
     // local var
-    #[case("local_var_test", line_result("local_var_test = 2 + 2".to_string(), 0, 0, 14, vec![Node::Lvasgn]))]
+    #[case("local_var_test", None, line_result("local_var_test = 2 + 2".to_string(), 0, 0, 14, vec![Node::Lvasgn]))]
     // send
-    #[case("send_test", line_result("var.send_test()".to_string(), 0, 4, 13, vec![Node::Send]))]
-    #[case("var", line_result("var.send_test()".to_string(), 0, 0, 3, vec![Node::Send, Node::Send]))]
-    #[case("local_var_test", line_result("local_var_test = 2 + 2".to_string(), 0, 0, 14, vec![Node::Lvasgn]))]
-    #[case("op_assign_test", line_result("op_assign_test += 1".to_string(), 0, 0, 14, vec![Node::OpAsgn, Node::Lvasgn]))]
-    #[case("or_assign_test", line_result("or_assign_test ||= 1".to_string(), 0, 0, 14, vec![Node::OrAsgn, Node::Lvasgn]))]
-    #[case("mass_assign_test", line_result("mass_assign_test, test = 1, 2".to_string(), 0, 0, 16, vec![Node::Masgn, Node::Mlhs, Node::Lvasgn]))]
+    #[case("send_test", None, line_result("var.send_test()".to_string(), 0, 4, 13, vec![Node::Send]))]
+    #[case("var", None, line_result("var.send_test()".to_string(), 0, 0, 3, vec![Node::Send, Node::Send]))]
+    #[case("local_var_test", None, line_result("local_var_test = 2 + 2".to_string(), 0, 0, 14, vec![Node::Lvasgn]))]
+    #[case("op_assign_test", None, line_result("op_assign_test += 1".to_string(), 0, 0, 14, vec![Node::OpAsgn, Node::Lvasgn]))]
+    #[case("or_assign_test", None, line_result("or_assign_test ||= 1".to_string(), 0, 0, 14, vec![Node::OrAsgn, Node::Lvasgn]))]
+    #[case("mass_assign_test", None, line_result("mass_assign_test, test = 1, 2".to_string(), 0, 0, 16, vec![Node::Masgn, Node::Mlhs, Node::Lvasgn]))]
     // while
-    #[case("while_test",  line_result("while while_test do; test; end".to_string(), 0, 6, 16, vec![Node::While, Node::Send]))]
-    #[case("while_post_test", line_result("begin while_post_test; end while test".to_string(), 0, 6, 21, vec![Node::WhilePost, Node::KwBegin, Node::Send]))]
+    #[case("while_test",  None, line_result("while while_test do; test; end".to_string(), 0, 6, 16, vec![Node::While, Node::Send]))]
+    #[case("while_post_test", None, line_result("begin while_post_test; end while test".to_string(), 0, 6, 21, vec![Node::WhilePost, Node::KwBegin, Node::Send]))]
     // until
-    #[case("until_test", line_result("until until_test do; test; end".to_string(), 0, 6, 16, vec![Node::Until, Node::Send]))]
-    #[case("bar", line_result("until foo do; bar; end".to_string(), 0, 14, 17, vec![Node::Until, Node::Send]))]
-    #[case("unless_test", line_result("puts 'test' unless unless_test".to_string(), 0, 19, 30, vec![Node::IfMod, Node::Send]))]
-    #[case("rescue_test", line_result("begin; test; rescue StandardError => rescue_test; true_test; else; else_test; end".to_string(), 0, 37, 48, vec![Node::KwBegin, Node::Rescue, Node::RescueBody, Node::Lvasgn]))]
-    #[case("bar", line_result("foo(**bar)".to_string(), 0, 6, 9, vec![Node::Send, Node::Kwargs, Node::Kwsplat, Node::Send]))]
-    #[case("regex_test", line_result("/regex_test/".to_string(), 0, 1, 11, vec![Node::Regexp, Node::Str]))]
-    #[case("pin_test", line_result("pin_test = 1; case foo; in ^pin_test; end".to_string(), 0, 28, 36, vec![Node::Begin, Node::CaseMatch, Node::InPattern, Node::Pin, Node::Lvar]))]
-    #[case("global_test", line_result("$global_test = 1000".to_string(), 0, 0, 12, vec![Node::Gvasgn]))]
+    #[case("until_test", None, line_result("until until_test do; test; end".to_string(), 0, 6, 16, vec![Node::Until, Node::Send]))]
+    #[case("bar", None, line_result("until foo do; bar; end".to_string(), 0, 14, 17, vec![Node::Until, Node::Send]))]
+    #[case("unless_test", None, line_result("puts 'test' unless unless_test".to_string(), 0, 19, 30, vec![Node::IfMod, Node::Send]))]
+    #[case("rescue_test", None, line_result("begin; test; rescue StandardError => rescue_test; true_test; else; else_test; end".to_string(), 0, 37, 48, vec![Node::KwBegin, Node::Rescue, Node::RescueBody, Node::Lvasgn]))]
+    #[case("bar", None, line_result("foo(**bar)".to_string(), 0, 6, 9, vec![Node::Send, Node::Kwargs, Node::Kwsplat, Node::Send]))]
+    #[case("regex_test", None, line_result("/regex_test/".to_string(), 0, 1, 11, vec![Node::Regexp, Node::Str]))]
+    #[case("pin_test", None, line_result("pin_test = 1; case foo; in ^pin_test; end".to_string(), 0, 28, 36, vec![Node::Begin, Node::CaseMatch, Node::InPattern, Node::Pin, Node::Lvar]))]
+    #[case("global_test", None, line_result("$global_test = 1000".to_string(), 0, 0, 12, vec![Node::Gvasgn]))]
     // const
-    #[case("CONST", line_result("CONST = 1".to_string(), 0, 0, 5, vec![Node::Casgn]))]
-    #[case("VAR", line_result("VAR::B = 1".to_string(), 0, 0, 3, vec![Node::Casgn]))]
-    #[case("1", line_result("VAR::B = 1".to_string(), 0, 9, 10, vec![Node::Casgn, Node::Int]))]
+    #[case("CONST", None, line_result("CONST = 1".to_string(), 0, 0, 5, vec![Node::Casgn]))]
+    #[case("VAR", None, line_result("VAR::B = 1".to_string(), 0, 0, 3, vec![Node::Casgn]))]
+    #[case("1", None, line_result("VAR::B = 1".to_string(), 0, 9, 10, vec![Node::Casgn, Node::Int]))]
     // instance var
-    #[case("foo", line_result("@foo".to_string(), 0, 0, 4, vec![Node::Ivar]))]
-    #[case("foo", line_result("@foo = 1".to_string(), 0, 0, 4, vec![Node::Ivasgn]))]
-    #[case("1", line_result("@foo = 1".to_string(), 0, 7, 8, vec![Node::Ivasgn, Node::Int]))]
+    #[case("foo", None, line_result("@foo".to_string(), 0, 0, 4, vec![Node::Ivar]))]
+    #[case("foo", None, line_result("@foo = 1".to_string(), 0, 0, 4, vec![Node::Ivasgn]))]
+    #[case("1", None, line_result("@foo = 1".to_string(), 0, 7, 8, vec![Node::Ivasgn, Node::Int]))]
     // if
-    #[case("foo", line_result("if foo; bar; end".to_string(), 0, 3, 6, vec![Node::If, Node::Send]))]
-    #[case("bar", line_result("if foo; else bar; end".to_string(), 0, 13, 16, vec![Node::If, Node::Send]))]
-    #[case("if_test", line_result("if if_test...bar_test; end".to_string(), 0, 3, 10, vec![Node::If, Node::EFlipFlop, Node::Send]))]
-    #[case("test_cond", line_result("test_cond ? test_if_true : test_if_false".to_string(), 0, 0, 9, vec![Node::IfTernary, Node::Send]))]
-    #[case("foo", line_result("if /foo/; end".to_string(), 0, 4, 7, vec![Node::If, Node::MatchCurrentLine, Node::Regexp, Node::Str]))]
-    #[case("bar", line_result("case foo; in pattern if bar; end".to_string(), 0, 24, 27, vec![Node::CaseMatch, Node::InPattern, Node::IfGuard, Node::Send]))]
+    #[case("foo", None, line_result("if foo; bar; end".to_string(), 0, 3, 6, vec![Node::If, Node::Send]))]
+    #[case("bar", None, line_result("if foo; else bar; end".to_string(), 0, 13, 16, vec![Node::If, Node::Send]))]
+    #[case("if_test", None, line_result("if if_test...bar_test; end".to_string(), 0, 3, 10, vec![Node::If, Node::EFlipFlop, Node::Send]))]
+    #[case("test_cond", None, line_result("test_cond ? test_if_true : test_if_false".to_string(), 0, 0, 9, vec![Node::IfTernary, Node::Send]))]
+    #[case("foo", None, line_result("if /foo/; end".to_string(), 0, 4, 7, vec![Node::If, Node::MatchCurrentLine, Node::Regexp, Node::Str]))]
+    #[case("bar", None, line_result("case foo; in pattern if bar; end".to_string(), 0, 24, 27, vec![Node::CaseMatch, Node::InPattern, Node::IfGuard, Node::Send]))]
     // index
-    #[case("foo", line_result("foo[1,2,3]".to_string(), 0, 0, 3, vec![Node::Index, Node::Send]))]
-    #[case("foo", line_result("foo[1, 2, 3] = bar".to_string(), 0, 0, 3, vec![Node::IndexAsgn, Node::Send]))]
+    #[case("foo", None, line_result("foo[1,2,3]".to_string(), 0, 0, 3, vec![Node::Index, Node::Send]))]
+    #[case("foo", None, line_result("foo[1, 2, 3] = bar".to_string(), 0, 0, 3, vec![Node::IndexAsgn, Node::Send]))]
     // hash
-    #[case("hash_test", line_result("test = { hash_test: 42 }".to_string(), 0, 9, 19, vec![Node::Lvasgn, Node::Hash, Node::Pair, Node::Sym]))]
+    #[case("hash_test", None, line_result("test = { hash_test: 42 }".to_string(), 0, 9, 19, vec![Node::Lvasgn, Node::Hash, Node::Pair, Node::Sym]))]
     // class var
-    #[case("foo", line_result("@@foo".to_string(), 0, 0, 5, vec![Node::Cvar]))]
-    #[case("foo", line_result("@@foo = 1".to_string(), 0, 0, 5, vec![Node::Cvasgn]))]
-    #[case("1", line_result("@@foo = 1".to_string(), 0, 8, 9, vec![Node::Cvasgn, Node::Int]))]
+    #[case("foo", None, line_result("@@foo".to_string(), 0, 0, 5, vec![Node::Cvar]))]
+    #[case("foo", None, line_result("@@foo = 1".to_string(), 0, 0, 5, vec![Node::Cvasgn]))]
+    #[case("1", None, line_result("@@foo = 1".to_string(), 0, 8, 9, vec![Node::Cvasgn, Node::Int]))]
     // global var
-    #[case("foo", line_result("$foo".to_string(), 0, 0, 4, vec![Node::Gvar]))]
-    #[case("foo", line_result("$foo = 1".to_string(), 0, 0, 4, vec![Node::Gvasgn]))]
-    #[case("1", line_result("$foo = 1".to_string(), 0, 7, 8, vec![Node::Gvasgn, Node::Int]))]
+    #[case("foo", None, line_result("$foo".to_string(), 0, 0, 4, vec![Node::Gvar]))]
+    #[case("foo", None, line_result("$foo = 1".to_string(), 0, 0, 4, vec![Node::Gvasgn]))]
+    #[case("1", None, line_result("$foo = 1".to_string(), 0, 7, 8, vec![Node::Gvasgn, Node::Int]))]
     // case
-    #[case("case_test", line_result("case case_test; when test; end".to_string(), 0, 5, 14, vec![Node::Case, Node::Send]))]
-    #[case("when_test", line_result("case test; when when_test; end".to_string(), 0, 16, 25, vec![Node::Case, Node::When, Node::Send]))]
-    #[case("case_in_test", line_result("case foo; in *case_in_test; puts 'v' end".to_string(), 0, 14, 26, vec![Node::CaseMatch, Node::InPattern, Node::ArrayPattern, Node::MatchRest, Node::MatchVar]))]
-    #[case("else_test", line_result("case 1; when 1; v; else else_test; end".to_string(), 0, 24, 33, vec![Node::Case, Node::Send]))]
-    #[case("else_match_test", line_result("case 1; in 2; else else_match_test; end".to_string(), 0, 19, 34, vec![Node::CaseMatch, Node::Send]))]
-    #[case("Foo", line_result("case 1; in Foo(42); end".to_string(), 0, 11, 14, vec![Node::CaseMatch, Node::InPattern, Node::ConstPattern]))]
-    #[case("bar", line_result("case foo; in [*x, 1 => bar, *y]; end".to_string(), 0, 23, 26, vec![Node::CaseMatch, Node::InPattern, Node::FindPattern, Node::MatchAs, Node::MatchVar]))]
-    #[case("1", line_result("case foo; in [*x, 1 => bar, *y]; end".to_string(), 0, 18, 19, vec![Node::CaseMatch, Node::InPattern, Node::FindPattern, Node::MatchAs, Node::Int]))]
+    #[case("case_test", None, line_result("case case_test; when test; end".to_string(), 0, 5, 14, vec![Node::Case, Node::Send]))]
+    #[case("when_test", None, line_result("case test; when when_test; end".to_string(), 0, 16, 25, vec![Node::Case, Node::When, Node::Send]))]
+    #[case("case_in_test", None, line_result("case foo; in *case_in_test; puts 'v' end".to_string(), 0, 14, 26, vec![Node::CaseMatch, Node::InPattern, Node::ArrayPattern, Node::MatchRest, Node::MatchVar]))]
+    #[case("else_test", None, line_result("case 1; when 1; v; else else_test; end".to_string(), 0, 24, 33, vec![Node::Case, Node::Send]))]
+    #[case("else_match_test", None, line_result("case 1; in 2; else else_match_test; end".to_string(), 0, 19, 34, vec![Node::CaseMatch, Node::Send]))]
+    #[case("Foo", None, line_result("case 1; in Foo(42); end".to_string(), 0, 11, 14, vec![Node::CaseMatch, Node::InPattern, Node::ConstPattern]))]
+    #[case("bar", None, line_result("case foo; in [*x, 1 => bar, *y]; end".to_string(), 0, 23, 26, vec![Node::CaseMatch, Node::InPattern, Node::FindPattern, Node::MatchAs, Node::MatchVar]))]
+    #[case("1", None, line_result("case foo; in [*x, 1 => bar, *y]; end".to_string(), 0, 18, 19, vec![Node::CaseMatch, Node::InPattern, Node::FindPattern, Node::MatchAs, Node::Int]))]
     // proc
-    #[case("proc_test", line_result("proc_test = ->(word) { puts word }".to_string(), 0, 0, 9, vec![Node::Lvasgn]))]
-    #[case("->", line_result("proc_test = ->(word) { puts word }".to_string(), 0, 12, 14, vec![Node::Lvasgn, Node::Block, Node::Lambda]))]
+    #[case("proc_test", None, line_result("proc_test = ->(word) { puts word }".to_string(), 0, 0, 9, vec![Node::Lvasgn]))]
+    #[case("->", None, line_result("proc_test = ->(word) { puts word }".to_string(), 0, 12, 14, vec![Node::Lvasgn, Node::Block, Node::Lambda]))]
     // int
-    #[case("10", line_result("int_test = 10".to_string(), 0, 11, 13, vec![Node::Lvasgn, Node::Int]))]
+    #[case("10", None, line_result("int_test = 10".to_string(), 0, 11, 13, vec![Node::Lvasgn, Node::Int]))]
     // float
-    #[case("1.1", line_result("foo = 1.1".to_string(), 0, 6, 9, vec![Node::Lvasgn, Node::Float]))]
+    #[case("1.1", None, line_result("foo = 1.1".to_string(), 0, 6, 9, vec![Node::Lvasgn, Node::Float]))]
     // rational
-    #[case("-1r", line_result("rational_test = -1r".to_string(), 0, 16, 19, vec![Node::Lvasgn, Node::Rational]))]
+    #[case("-1r", None, line_result("rational_test = -1r".to_string(), 0, 16, 19, vec![Node::Lvasgn, Node::Rational]))]
     // block pass
-    #[case("block_test", line_result("foo(&block_test)".to_string(), 0, 5, 15, vec![Node::Send, Node::BlockPass, Node::Send]))]
+    #[case("block_test", None, line_result("foo(&block_test)".to_string(), 0, 5, 15, vec![Node::Send, Node::BlockPass, Node::Send]))]
     // block args
-    #[case("foo", line_result("def m(&foo); end".to_string(), 0, 6, 9, vec![Node::Def, Node::Arg, Node::Blockarg]))]
+    #[case("foo", None, line_result("def m(&foo); end".to_string(), 0, 6, 9, vec![Node::Def, Node::Arg, Node::Blockarg]))]
     // break
-    #[case("break_test", line_result("break :break_test".to_string(), 0, 6, 17, vec![Node::Break, Node::Sym]))]
+    #[case("break_test", None, line_result("break :break_test".to_string(), 0, 6, 17, vec![Node::Break, Node::Sym]))]
     // csend
-    #[case("csend_test", line_result("foo&.csend_test(42)".to_string(), 0, 5, 15, vec![Node::CSend]))]
+    #[case("csend_test", None, line_result("foo&.csend_test(42)".to_string(), 0, 5, 15, vec![Node::CSend]))]
     // super
-    #[case("super", line_result("super".to_string(), 0, 0, 5, vec![Node::ZSuper]))]
+    #[case("super", None, line_result("super".to_string(), 0, 0, 5, vec![Node::ZSuper]))]
     // xstr
-    #[case("xstr_test", line_result("`sh #{xstr_test}`".to_string(), 0, 6, 15, vec![Node::Xstr, Node::Begin, Node::Send]))]
+    #[case("xstr_test", None, line_result("`sh #{xstr_test}`".to_string(), 0, 6, 15, vec![Node::Xstr, Node::Begin, Node::Send]))]
     // yield
-    #[case("yield_test", line_result("yield yield_test, foo".to_string(), 0, 6, 16, vec![Node::Yield, Node::Send]))]
+    #[case("yield_test", None, line_result("yield yield_test, foo".to_string(), 0, 6, 16, vec![Node::Yield, Node::Send]))]
     // true
-    #[case("true", line_result("value = true".to_string(), 0, 8, 12, vec![Node::Lvasgn, Node::True]))]
+    #[case("true", None, line_result("value = true".to_string(), 0, 8, 12, vec![Node::Lvasgn, Node::True]))]
     // super
-    #[case("super", line_result("super(1, 2)".to_string(), 0, 0, 5, vec![Node::Super]))]
+    #[case("super", None, line_result("super(1, 2)".to_string(), 0, 0, 5, vec![Node::Super]))]
     // shadowarg
-    #[case("shadow", line_result("proc { |;shadow|}".to_string(), 0, 9, 15, vec![Node::Block, Node::Arg, Node::Shadowarg]))]
+    #[case("shadow", None, line_result("proc { |;shadow|}".to_string(), 0, 9, 15, vec![Node::Block, Node::Arg, Node::Shadowarg]))]
     // self
-    #[case("self", line_result("self.vvvv".to_string(), 0, 0, 4, vec![Node::Send, Node::Self_]))]
+    #[case("self", None, line_result("self.vvvv".to_string(), 0, 0, 4, vec![Node::Send, Node::Self_]))]
     // splat
-    #[case("splat", line_result("foo(*splat)".to_string(), 0, 5, 10, vec![Node::Send, Node::Splat, Node::Send]))]
+    #[case("splat", None, line_result("foo(*splat)".to_string(), 0, 5, 10, vec![Node::Send, Node::Splat, Node::Send]))]
     // return
-    #[case("ret", line_result("return ret, 1".to_string(), 0, 7, 10, vec![Node::Return, Node::Send]))]
+    #[case("ret", None, line_result("return ret, 1".to_string(), 0, 7, 10, vec![Node::Return, Node::Send]))]
     // retry
-    #[case("retry", line_result("retry if try < vv".to_string(), 0, 0, 5, vec![Node::IfMod, Node::Retry]))]
+    #[case("retry", None, line_result("retry if try < vv".to_string(), 0, 0, 5, vec![Node::IfMod, Node::Retry]))]
     // regexp
-    #[case("regex", line_result("/regex/mix".to_string(), 0, 1, 6, vec![Node::Regexp, Node::Str]))]
-    #[case("imx", line_result("/regex/mix".to_string(), 0, 7, 10, vec![Node::Regexp, Node::RegOpt]))]
+    #[case("regex", None, line_result("/regex/mix".to_string(), 0, 1, 6, vec![Node::Regexp, Node::Str]))]
+    #[case("imx", None, line_result("/regex/mix".to_string(), 0, 7, 10, vec![Node::Regexp, Node::RegOpt]))]
     // redo
-    #[case("redo", line_result("redo if test".to_string(), 0, 0, 4, vec![Node::IfMod, Node::Redo]))]
+    #[case("redo", None, line_result("redo if test".to_string(), 0, 0, 4, vec![Node::IfMod, Node::Redo]))]
     // proc
-    #[case("proc1", line_result("proc { |(proc1, proc2)| }".to_string(), 0, 9, 14, vec![Node::Block, Node::Arg, Node::Procarg0, Node::Arg]))]
+    #[case("proc1", None, line_result("proc { |(proc1, proc2)| }".to_string(), 0, 9, 14, vec![Node::Block, Node::Arg, Node::Procarg0, Node::Arg]))]
     // preexe
-    #[case("BEGIN", line_result("BEGIN { 1 }".to_string(), 0, 0, 5, vec![Node::Preexe]))]
+    #[case("BEGIN", None, line_result("BEGIN { 1 }".to_string(), 0, 0, 5, vec![Node::Preexe]))]
     // postexe
-    #[case("END", line_result("END { 1 }".to_string(), 0, 0, 3, vec![Node::Postexe]))]
+    #[case("END", None, line_result("END { 1 }".to_string(), 0, 0, 3, vec![Node::Postexe]))]
     // and
-    #[case("bar", line_result("foo && bar".to_string(), 0, 7, 10, vec![Node::And, Node::Send]))]
-    #[case("foo", line_result("foo &&= bar".to_string(), 0, 0, 3, vec![Node::AndAsgn, Node::Lvasgn]))]
+    #[case("bar", None, line_result("foo && bar".to_string(), 0, 7, 10, vec![Node::And, Node::Send]))]
+    #[case("foo", None, line_result("foo &&= bar".to_string(), 0, 0, 3, vec![Node::AndAsgn, Node::Lvasgn]))]
     // or
-    #[case("bar", line_result("foo || bar".to_string(), 0, 7, 10, vec![Node::Or, Node::Send]))]
+    #[case("bar", None, line_result("foo || bar".to_string(), 0, 7, 10, vec![Node::Or, Node::Send]))]
     // optarg
-    #[case("bar", line_result("def foo(bar = 1); end".to_string(), 0, 8, 11, vec![Node::Def, Node::Arg, Node::Optarg]))]
+    #[case("bar", None, line_result("def foo(bar = 1); end".to_string(), 0, 8, 11, vec![Node::Def, Node::Arg, Node::Optarg]))]
     // num block
-    #[case("_2", line_result("proc { _2 }".to_string(), 0, 5, 8, vec![Node::Numblock]))]
+    #[case("_2", None, line_result("proc { _2 }".to_string(), 0, 5, 8, vec![Node::Numblock]))]
     // nthref
-    #[case("$1", line_result("puts \"#$1\"".to_string(), 0, 7, 8, vec![Node::Send, Node::Dstr, Node::NthRef]))]
+    #[case("$1", None, line_result("puts \"#$1\"".to_string(), 0, 7, 8, vec![Node::Send, Node::Dstr, Node::NthRef]))]
     // nil
-    #[case("nil", line_result("v = nil".to_string(), 0, 4, 7, vec![Node::Lvasgn, Node::Nil]))]
+    #[case("nil", None, line_result("v = nil".to_string(), 0, 4, 7, vec![Node::Lvasgn, Node::Nil]))]
     // next
-    #[case("next", line_result("next 1".to_string(), 0, 0, 4, vec![Node::Next]))]
+    #[case("next", None, line_result("next 1".to_string(), 0, 0, 4, vec![Node::Next]))]
     // backref
-    #[case("$+", line_result("$1, $+".to_string(), 0, 4, 6, vec![Node::BackRef]))]
+    #[case("$+", None, line_result("$1, $+".to_string(), 0, 4, 6, vec![Node::BackRef]))]
     // cbase
-    #[case("::", line_result("::X = 10".to_string(), 0, 0, 2, vec![Node::Casgn, Node::Cbase]))]
+    #[case("::", None, line_result("::X = 10".to_string(), 0, 0, 2, vec![Node::Casgn, Node::Cbase]))]
     // complex
-    #[case("4i", line_result("3 + 4i".to_string(), 0, 4, 6, vec![Node::Send, Node::Complex]))]
+    #[case("4i", None, line_result("3 + 4i".to_string(), 0, 4, 6, vec![Node::Send, Node::Complex]))]
     // defined
-    #[case("foo", line_result("defined?(foo)".to_string(), 0, 9, 12, vec![Node::Defined, Node::Send]))]
+    #[case("foo", None, line_result("defined?(foo)".to_string(), 0, 9, 12, vec![Node::Defined, Node::Send]))]
     // empty else
-    #[case("else", line_result("case foo; in 1; else; end".to_string(), 0, 16, 20, vec![Node::CaseMatch, Node::EmptyElse]))]
+    #[case("else", None, line_result("case foo; in 1; else; end".to_string(), 0, 16, 20, vec![Node::CaseMatch, Node::EmptyElse]))]
     // __ENCODING__
-    #[case("__ENCODING__", line_result("__ENCODING__".to_string(), 0, 0, 12, vec![Node::Encoding]))]
+    #[case("__ENCODING__", None, line_result("__ENCODING__".to_string(), 0, 0, 12, vec![Node::Encoding]))]
     // __FILE__
-    #[case("__FILE__", line_result("__FILE__".to_string(), 0, 0, 8, vec![Node::File]))]
+    #[case("__FILE__", None, line_result("__FILE__".to_string(), 0, 0, 8, vec![Node::File]))]
     // __LINE__
-    #[case("__LINE__", line_result("__LINE__".to_string(), 0, 0, 8, vec![Node::Line]))]
+    #[case("__LINE__", None, line_result("__LINE__".to_string(), 0, 0, 8, vec![Node::Line]))]
     // ensure
-    #[case("bar", line_result("begin; foo; ensure; bar; end".to_string(), 0, 20, 23, vec![Node::KwBegin, Node::Ensure, Node::Send]))]
+    #[case("bar", None, line_result("begin; foo; ensure; bar; end".to_string(), 0, 20, 23, vec![Node::KwBegin, Node::Ensure, Node::Send]))]
     // erange
-    #[case("1", line_result("1...3".to_string(), 0, 0, 1, vec![Node::Erange, Node::Int]))]
-    #[case("2", line_result("2..4".to_string(), 0, 0, 1, vec![Node::Irange, Node::Int]))]
+    #[case("1", None, line_result("1...3".to_string(), 0, 0, 1, vec![Node::Erange, Node::Int]))]
+    #[case("2", None, line_result("2..4".to_string(), 0, 0, 1, vec![Node::Irange, Node::Int]))]
     // IFlipFlop
-    #[case("foo", line_result("if foo..bar; end".to_string(), 0, 3, 6, vec![Node::If, Node::IFlipFlop, Node::Send]))]
-    #[case("bar", line_result("if foo..bar; end".to_string(), 0, 8, 11, vec![Node::If, Node::IFlipFlop, Node::Send]))]
+    #[case("foo", None, line_result("if foo..bar; end".to_string(), 0, 3, 6, vec![Node::If, Node::IFlipFlop, Node::Send]))]
+    #[case("bar", None, line_result("if foo..bar; end".to_string(), 0, 8, 11, vec![Node::If, Node::IFlipFlop, Node::Send]))]
     // false
-    #[case("false", line_result("foo = false".to_string(), 0, 6, 11, vec![Node::Lvasgn, Node::False]))]
+    #[case("false", None, line_result("foo = false".to_string(), 0, 6, 11, vec![Node::Lvasgn, Node::False]))]
     // for
-    #[case("foo", line_result("for foo in bar; puts 'v'; end".to_string(), 0, 4, 7, vec![Node::For, Node::Lvasgn]))]
+    #[case("foo", None, line_result("for foo in bar; puts 'v'; end".to_string(), 0, 4, 7, vec![Node::For, Node::Lvasgn]))]
     // match pattern
-    #[case("foo", line_result("foo in pattern".to_string(), 0, 0, 3, vec![Node::MatchPatternP, Node::Send]))]
-    #[case("foo", line_result("foo => pattern".to_string(), 0, 0, 3, vec![Node::MatchPattern, Node::Send]))]
-    #[case("bar", line_result("foo in foo | bar".to_string(), 0, 13, 16, vec![Node::MatchPatternP, Node::MatchAlt, Node::MatchVar]))]
-    #[case("nil", line_result("foo() in **nil".to_string(), 0, 9, 14, vec![Node::MatchPatternP, Node::HashPattern, Node::MatchNilPattern]))]
+    #[case("foo", None, line_result("foo in pattern".to_string(), 0, 0, 3, vec![Node::MatchPatternP, Node::Send]))]
+    #[case("foo", None, line_result("foo => pattern".to_string(), 0, 0, 3, vec![Node::MatchPattern, Node::Send]))]
+    #[case("bar", None, line_result("foo in foo | bar".to_string(), 0, 13, 16, vec![Node::MatchPatternP, Node::MatchAlt, Node::MatchVar]))]
+    #[case("nil", None, line_result("foo() in **nil".to_string(), 0, 9, 14, vec![Node::MatchPatternP, Node::HashPattern, Node::MatchNilPattern]))]
     // heredoc
-    // #[case("xhere_test", line_result("<<-`HERE`  a   #{xhere_test} HERE".to_string(), 2, 5, 15, vec![Node::Heredoc, Node::Begin, Node::Send]))]
-    fn grep_source(#[case] query: String, #[case] expected: LineResult) {
+    #[case("xhere_test", Some("<<-`HERE`\n  a   #{xhere_test} \nHERE".to_string()), line_result("  a   #{xhere_test} ".to_string(), 1, 8, 18, vec![Node::XHeredoc, Node::Begin, Node::Send]))]
+    fn grep_source(
+        #[case] query: String,
+        #[case] text: Option<String>,
+        #[case] expected: LineResult,
+    ) {
         let m = TextMatcher::new(query, false, false);
         let source = Source::new(
-            expected.line.as_str(),
+            text.unwrap_or(expected.line.clone()).as_str(),
             &m,
             GrepOptions {
                 include_node: None,
