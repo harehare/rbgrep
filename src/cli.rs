@@ -115,8 +115,11 @@ pub struct Cli {
     #[arg(short, long)]
     quiet: bool,
 
+    /// Searches for specified files and directories
+    #[arg(short, long)]
+    path: Option<Vec<String>>,
+
     query: Option<String>,
-    path: Vec<String>,
 }
 
 const DEFAULT_SEPARATOR: &str = "--";
@@ -134,9 +137,10 @@ impl Cli {
             );
         }
 
-        let path_list = (!self.path.is_empty())
-            .then_some(self.path.clone())
-            .unwrap_or(vec![".".to_string()]);
+        let path_list = match &self.path {
+            Some(p) => p.clone(),
+            None => vec![".".to_string()],
+        };
 
         if self.regexp {
             match RegexMatcher::new(self.read_query().as_str()) {
@@ -430,7 +434,7 @@ mod tests {
             quiet,
             exclude: Some("test".to_string()),
             query: Some(query),
-            path: vec![dir.to_str().unwrap().to_string()],
+            path: Some(vec![dir.to_str().unwrap().to_string()]),
         };
 
         assert_eq!(cli.run().is_ok(), expected);
@@ -467,7 +471,7 @@ mod tests {
             quiet: false,
             exclude: Some("test".to_string()),
             query: Some(query),
-            path: vec![file.path().to_str().unwrap().to_string()],
+            path: Some(vec![file.path().to_str().unwrap().to_string()]),
         };
 
         assert_eq!(cli.run().is_ok(), expected);

@@ -26,11 +26,10 @@ cargo run
 ## Usage
 
 ```bash
-Usage: rbgrep [OPTIONS] <QUERY> [PATH]...
+Usage: rbgrep [OPTIONS] [QUERY]
 
 Arguments:
-  <QUERY>
-  [PATH]...
+  [QUERY]
 
 Options:
   -c, --count
@@ -77,6 +76,8 @@ Options:
           Number of grep worker threads to use
       --max-depth <MAX_DEPTH>
           The maximum depth to recurse
+  -p, --path <PATH>
+          Searches for specified files and directories
   -q, --quiet
           Do not output matched lines. instead, exit with status 0 when there is a match and with non-zero status when there isn’t
   -h, --help
