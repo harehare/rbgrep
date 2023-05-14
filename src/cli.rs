@@ -1,11 +1,11 @@
 use crate::matcher::{RegexMatcher, TextMatcher};
 use crate::source::{GrepOptions, GrepResult, Node, Source};
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use clap::Parser;
+use clap_stdin::MaybeStdIn;
 use colored::*;
 use ignore::{overrides::OverrideBuilder, types::TypesBuilder, WalkBuilder};
 use rayon::prelude::*;
-use std::io;
 use std::{
     env, fs,
     io::{stdout, BufWriter, Write},
@@ -17,7 +17,7 @@ use tap::Tap;
 #[derive(Parser)]
 #[command(name = "rbgrep")]
 #[command(author = "Takahiro Sato. <harehare1110@gmail.com>")]
-#[command(version = "0.1.1")]
+#[command(version = "0.1.2")]
 #[command(
     about = "rbgrep is a line-oriented search cli tool that recursively searches ruby files in the current directory for a regex patterns.",
     long_about = None
@@ -119,7 +119,8 @@ pub struct Cli {
     #[arg(short, long)]
     path: Option<Vec<String>>,
 
-    query: Option<String>,
+    query: String,
+    stdin: Option<MaybeStdIn<String>>,
 }
 
 const DEFAULT_SEPARATOR: &str = "--";
@@ -143,10 +144,30 @@ impl Cli {
         };
 
         if self.regexp {
-            match RegexMatcher::new(self.read_query().as_str()) {
+            match RegexMatcher::new(self.query.as_str()) {
                 Ok(m) => {
-                    let results =
-                        path_list
+                    let results = match self.stdin.as_ref() {
+                        Some(stdin) => {
+                            let source = Source::new(
+                                stdin.as_str(),
+                                &m,
+                                GrepOptions {
+                                    include_node: self.include_node.clone(),
+                                    exclude_node: self.exclude_node.clone(),
+                                    start_nodes: self.start_nodes.clone(),
+                                    end_nodes: self.end_nodes.clone(),
+                                },
+                            );
+
+                            source
+                                .grep("")
+                                .map(|r| {
+                                    self.print(&r);
+                                    vec![r]
+                                })
+                                .unwrap_or(vec![])
+                        }
+                        None => path_list
                             .par_iter()
                             .flat_map(|path| {
                                 self.entries(path)
@@ -170,52 +191,12 @@ impl Cli {
                                                     .errors(path.clone(), self.with_warning)
                                                     .or(source.grep(path))
                                             })
-                                            .map(|ret| {
-                                                ret.tap(|r| {
-                                                    let mut out = BufWriter::new(stdout().lock());
-
-                                                    match r {
-                                                        GrepResult::FileResult(r) => {
-                                                            if self.count {
-                                                                out.write_all(
-                                                                    r.to_count_string(
-                                                                        !self.no_file_name,
-                                                                    )
-                                                                    .as_bytes(),
-                                                                )
-                                                                .expect("write failed");
-                                                            } else if !self.quiet {
-                                                                out.write_all(
-                                                        r.to_result_string(
-                                                            self.with_nodes,
-                                                            !self.no_file_name,
-                                                            !self.no_line_no,
-                                                            self.context_separator
-                                                                .clone()
-                                                                .unwrap_or(
-                                                                    DEFAULT_SEPARATOR.to_string(),
-                                                                ),
-                                                            self.context.or(self.before_context),
-                                                            self.context.or(self.after_context),
-                                                        )
-                                                        .as_bytes(),
-                                                    )
-                                                    .expect("write failed");
-                                                            }
-                                                        }
-                                                        GrepResult::FileErrorResult(errors) => {
-                                                            out.write_all(
-                                                                format!("{}\n", errors).as_bytes(),
-                                                            )
-                                                            .expect("write failed");
-                                                        }
-                                                    }
-                                                })
-                                            })
+                                            .map(|ret| ret.tap(|r| self.print(r)))
                                     })
                                     .collect::<Vec<GrepResult>>()
                             })
-                            .collect::<Vec<GrepResult>>();
+                            .collect::<Vec<GrepResult>>(),
+                    };
 
                     if results.is_empty() {
                         Err(anyhow::anyhow!("not found"))
@@ -226,73 +207,58 @@ impl Cli {
                 Err(e) => Err(anyhow::anyhow!(e)),
             }
         } else {
-            let m = TextMatcher::new(self.read_query(), self.exact_match, self.ignore_case);
-            let results = path_list
-                .par_iter()
-                .flat_map(|path| {
-                    self.entries(path)
-                        .par_iter()
-                        .filter_map(|path| {
-                            fs::read_to_string(path)
-                                .ok()
-                                .and_then(|content| {
-                                    let source = Source::new(
-                                        content.as_str(),
-                                        &m,
-                                        GrepOptions {
-                                            include_node: self.include_node.clone(),
-                                            exclude_node: self.exclude_node.clone(),
-                                            start_nodes: self.start_nodes.clone(),
-                                            end_nodes: self.end_nodes.clone(),
-                                        },
-                                    );
+            let m = TextMatcher::new(self.query.to_string(), self.exact_match, self.ignore_case);
+            let results = match self.stdin.as_ref() {
+                Some(stdin) => {
+                    let source = Source::new(
+                        stdin.as_str(),
+                        &m,
+                        GrepOptions {
+                            include_node: self.include_node.clone(),
+                            exclude_node: self.exclude_node.clone(),
+                            start_nodes: self.start_nodes.clone(),
+                            end_nodes: self.end_nodes.clone(),
+                        },
+                    );
 
-                                    source
-                                        .errors(path.clone(), self.with_warning)
-                                        .or(source.grep(path))
-                                })
-                                .map(|ret| {
-                                    ret.tap(|r| {
-                                        let mut out = BufWriter::new(stdout().lock());
-
-                                        match r {
-                                            GrepResult::FileResult(r) => {
-                                                if self.count {
-                                                    out.write_all(
-                                                        r.to_count_string(!self.no_file_name)
-                                                            .as_bytes(),
-                                                    )
-                                                    .expect("write failed");
-                                                } else if !self.quiet {
-                                                    out.write_all(
-                                                        r.to_result_string(
-                                                            self.with_nodes,
-                                                            !self.no_file_name,
-                                                            !self.no_line_no,
-                                                            self.context_separator
-                                                                .clone()
-                                                                .unwrap_or(
-                                                                    DEFAULT_SEPARATOR.to_string(),
-                                                                ),
-                                                            self.context.or(self.before_context),
-                                                            self.context.or(self.after_context),
-                                                        )
-                                                        .as_bytes(),
-                                                    )
-                                                    .expect("write failed");
-                                                }
-                                            }
-                                            GrepResult::FileErrorResult(errors) => {
-                                                out.write_all(format!("{}\n", errors).as_bytes())
-                                                    .expect("write failed");
-                                            }
-                                        }
-                                    })
-                                })
+                    source
+                        .grep("")
+                        .map(|r| {
+                            self.print(&r);
+                            vec![r]
                         })
-                        .collect::<Vec<GrepResult>>()
-                })
-                .collect::<Vec<GrepResult>>();
+                        .unwrap_or(vec![])
+                }
+                None => path_list
+                    .par_iter()
+                    .flat_map(|path| {
+                        self.entries(path)
+                            .par_iter()
+                            .filter_map(|path| {
+                                fs::read_to_string(path)
+                                    .ok()
+                                    .and_then(|content| {
+                                        let source = Source::new(
+                                            content.as_str(),
+                                            &m,
+                                            GrepOptions {
+                                                include_node: self.include_node.clone(),
+                                                exclude_node: self.exclude_node.clone(),
+                                                start_nodes: self.start_nodes.clone(),
+                                                end_nodes: self.end_nodes.clone(),
+                                            },
+                                        );
+
+                                        source
+                                            .errors(path.clone(), self.with_warning)
+                                            .or(source.grep(path))
+                                    })
+                                    .map(|ret| ret.tap(|r| self.print(r)))
+                            })
+                            .collect::<Vec<GrepResult>>()
+                    })
+                    .collect::<Vec<GrepResult>>(),
+            };
 
             if results.is_empty() {
                 Err(anyhow::anyhow!("not found"))
@@ -302,10 +268,35 @@ impl Cli {
         }
     }
 
-    fn read_query(&self) -> String {
-        match &self.query {
-            Some(query) => query.clone(),
-            None => read_stdin().unwrap_or("".to_string()),
+    fn print(&self, result: &GrepResult) {
+        let mut out = BufWriter::new(stdout().lock());
+
+        match result {
+            GrepResult::FileResult(r) => {
+                if self.count {
+                    out.write_all(r.to_count_string(!self.no_file_name).as_bytes())
+                        .expect("write failed");
+                } else if !self.quiet {
+                    out.write_all(
+                        r.to_result_string(
+                            self.with_nodes,
+                            !self.no_file_name,
+                            !self.no_line_no,
+                            self.context_separator
+                                .clone()
+                                .unwrap_or(DEFAULT_SEPARATOR.to_string()),
+                            self.context.or(self.before_context),
+                            self.context.or(self.after_context),
+                        )
+                        .as_bytes(),
+                    )
+                    .expect("write failed");
+                }
+            }
+            GrepResult::FileErrorResult(errors) => {
+                out.write_all(format!("{}\n", errors).as_bytes())
+                    .expect("write failed");
+            }
         }
     }
 
@@ -348,16 +339,12 @@ impl Cli {
     }
 }
 
-fn read_stdin() -> Result<String> {
-    io::read_to_string(io::stdin())
-        .map(|q| q.replace('\n', ""))
-        .map_err(|_| anyhow!("error"))
-}
-
 #[cfg(test)]
 mod tests {
+    use clap_stdin::MaybeStdIn;
     use rstest::rstest;
     use std::io::prelude::*;
+    use std::str::FromStr;
     use std::{env, fs::File};
     use tempfile::NamedTempFile;
 
@@ -433,16 +420,33 @@ mod tests {
             max_depth: None,
             quiet,
             exclude: Some("test".to_string()),
-            query: Some(query),
+            query: query,
             path: Some(vec![dir.to_str().unwrap().to_string()]),
+            stdin: None,
         };
 
         assert_eq!(cli.run().is_ok(), expected);
     }
 
     #[rstest]
-    #[case("test", "class Test\n  def test\n    puts 'test'\n  end\nend", true)]
-    fn test_run_with_file(#[case] query: String, #[case] text: String, #[case] expected: bool) {
+    #[case(
+        "test",
+        "class Test\n  def test\n    puts 'test'\n  end\nend",
+        false,
+        true
+    )]
+    #[case(
+        "test",
+        "class Test\n  def test\n    puts 'test'\n  end\nend",
+        true,
+        true
+    )]
+    fn test_run_with_file(
+        #[case] query: String,
+        #[case] text: String,
+        #[case] is_stdin: bool,
+        #[case] expected: bool,
+    ) {
         let mut file = NamedTempFile::new().unwrap();
         file.write_all(text.as_bytes()).unwrap();
 
@@ -470,8 +474,9 @@ mod tests {
             max_depth: None,
             quiet: false,
             exclude: Some("test".to_string()),
-            query: Some(query),
+            query: query,
             path: Some(vec![file.path().to_str().unwrap().to_string()]),
+            stdin: is_stdin.then_some(MaybeStdIn::from_str(text.as_str()).unwrap()),
         };
 
         assert_eq!(cli.run().is_ok(), expected);

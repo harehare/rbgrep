@@ -120,6 +120,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "clap-stdin"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbef2a82f68524c319c18ae00f4c96f6c8cfc8c9df18e65ff64a706de3a35e9b"
+dependencies = [
+ "thiserror",
+]
+
+[[package]]
 name = "clap_builder"
 version = "4.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -578,10 +587,11 @@ dependencies = [
 
 [[package]]
 name = "rbgrep"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "clap",
+ "clap-stdin",
  "colored",
  "ignore",
  "itertools",
@@ -776,6 +786,26 @@ dependencies = [
  "redox_syscall",
  "rustix",
  "windows-sys 0.45.0",
+]
+
+[[package]]
+name = "thiserror"
+version = "1.0.40"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "978c9a314bd8dc99be594bc3c175faaa9794be04a5a5e153caba6915336cebac"
+dependencies = [
+ "thiserror-impl",
+]
+
+[[package]]
+name = "thiserror-impl"
+version = "1.0.40"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f9456a42c5b0d803c8cd86e73dd7cc9edd429499f37a3550d286d5e86720569f"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.14",
 ]
 
 [[package]]

@@ -3,7 +3,7 @@
 ![test](https://github.com/harehare/rbgrep/actions/workflows/test.yml/badge.svg)
 [![MIT License](http://img.shields.io/badge/license-MIT-blue.svg?style=flat)](LICENSE)
 
-rbgrep is a line-oriented search cli tool that recursively searches **ruby files** in the current directory for a regex patterns.
+rbgrep is a AST-based line-oriented search cli tool that recursively searches **ruby files** in the current directory for a regex patterns.
 
 ### Screenshot of search results
 
@@ -26,10 +26,11 @@ cargo run
 ## Usage
 
 ```bash
-Usage: rbgrep [OPTIONS] [QUERY]
+Usage: rbgrep [OPTIONS] <QUERY> [STDIN]
 
 Arguments:
-  [QUERY]
+  <QUERY>
+  [STDIN]
 
 Options:
   -c, --count
@@ -98,6 +99,16 @@ $ rbgrep -S begin -T hash -T pair -T sym title
 ```rb
 $ rbgrep -S begin -T index -T sym title
 ./example.rb:14       puts "Title: #{article[:title]}"
+```
+
+```rb
+$ cat example.rb | rbgrep -S begin -T index -T sym title -
+:14       puts "Title: #{article[:title]}"
+```
+
+```rb
+$ rbgrep -S begin -T index -T sym -p example.rb -p example2.rb title
+:14       puts "Title: #{article[:title]}"
 ```
 
 ## License

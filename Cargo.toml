@@ -3,7 +3,7 @@ description = "rbgrep is a line-oriented search cli tool that recursively search
 edition = "2021"
 license = "MIT"
 name = "rbgrep"
-version = "0.1.0"
+version = "0.1.2"
 
 [[bin]]
 name = "rbgrep"
@@ -12,6 +12,7 @@ path = "./src/main.rs"
 [dependencies]
 anyhow = "1.0.70"
 clap = {version = "4.2.1", features = ["derive"]}
+clap-stdin = "0.1.1"
 colored = "2.0.0"
 ignore = "0.4"
 itertools = "0.10.5"
