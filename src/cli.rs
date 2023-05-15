@@ -17,7 +17,7 @@ use tap::Tap;
 #[derive(Parser)]
 #[command(name = "rbgrep")]
 #[command(author = "Takahiro Sato. <harehare1110@gmail.com>")]
-#[command(version = "0.1.2")]
+#[command(version = "0.1.3")]
 #[command(
     about = "rbgrep is a line-oriented search cli tool that recursively searches ruby files in the current directory for a regex patterns.",
     long_about = None
@@ -43,14 +43,6 @@ pub struct Cli {
     #[arg(short = 'e', long)]
     regexp: bool,
 
-    /// Include node type.
-    #[arg(short = 'I', long, value_enum)]
-    include_node: Option<Node>,
-
-    /// Exclude node type.
-    #[arg(short = 'E', long, value_enum)]
-    exclude_node: Option<Node>,
-
     /// Start nodes.
     #[arg(short = 'S', long, value_enum)]
     start_nodes: Option<Vec<Node>>,
@@ -60,7 +52,7 @@ pub struct Cli {
     exclude: Option<String>,
 
     /// End nodes.
-    #[arg(short = 'T', long, value_enum)]
+    #[arg(short = 'E', long, value_enum)]
     end_nodes: Option<Vec<Node>>,
 
     /// Don't respect .gitignore files.
@@ -152,8 +144,6 @@ impl Cli {
                                 stdin.as_str(),
                                 &m,
                                 GrepOptions {
-                                    include_node: self.include_node.clone(),
-                                    exclude_node: self.exclude_node.clone(),
                                     start_nodes: self.start_nodes.clone(),
                                     end_nodes: self.end_nodes.clone(),
                                 },
@@ -180,8 +170,6 @@ impl Cli {
                                                     content.as_str(),
                                                     &m,
                                                     GrepOptions {
-                                                        include_node: self.include_node.clone(),
-                                                        exclude_node: self.exclude_node.clone(),
                                                         start_nodes: self.start_nodes.clone(),
                                                         end_nodes: self.end_nodes.clone(),
                                                     },
@@ -214,8 +202,6 @@ impl Cli {
                         stdin.as_str(),
                         &m,
                         GrepOptions {
-                            include_node: self.include_node.clone(),
-                            exclude_node: self.exclude_node.clone(),
                             start_nodes: self.start_nodes.clone(),
                             end_nodes: self.end_nodes.clone(),
                         },
@@ -242,8 +228,6 @@ impl Cli {
                                             content.as_str(),
                                             &m,
                                             GrepOptions {
-                                                include_node: self.include_node.clone(),
-                                                exclude_node: self.exclude_node.clone(),
                                                 start_nodes: self.start_nodes.clone(),
                                                 end_nodes: self.end_nodes.clone(),
                                             },
@@ -402,8 +386,6 @@ mod tests {
             exact_match: false,
             hidden: true,
             regexp,
-            include_node: None,
-            exclude_node: None,
             start_nodes: None,
             end_nodes: None,
             no_git_ignore: false,
@@ -456,8 +438,6 @@ mod tests {
             exact_match: false,
             hidden: true,
             regexp: false,
-            include_node: None,
-            exclude_node: None,
             start_nodes: None,
             end_nodes: None,
             no_git_ignore: false,

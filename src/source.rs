@@ -134,8 +134,6 @@ pub enum Node {
 }
 
 pub struct GrepOptions {
-    pub include_node: Option<Node>,
-    pub exclude_node: Option<Node>,
     pub start_nodes: Option<Vec<Node>>,
     pub end_nodes: Option<Vec<Node>>,
 }
@@ -473,12 +471,7 @@ impl<'a, T: Matcher> Source<'a, T> {
             let results: Vec<LineResult> = self
                 .search(vec![], root, &self.input)
                 .into_iter()
-                .filter(|r| {
-                    self.include_node(&r.nodes)
-                        && self.exclude_node(&r.nodes)
-                        && self.start_nodes(&r.nodes)
-                        && self.end_nodes(&r.nodes)
-                })
+                .filter(|r| self.start_nodes(&r.nodes) && self.end_nodes(&r.nodes))
                 .collect();
 
             (!results.is_empty())
@@ -491,22 +484,6 @@ impl<'a, T: Matcher> Source<'a, T> {
                 })
                 .unwrap_or(None)
         })
-    }
-
-    fn include_node(&self, nodes: &[Node]) -> bool {
-        self.options
-            .include_node
-            .as_ref()
-            .map(|i| nodes.contains(i))
-            .unwrap_or(true)
-    }
-
-    fn exclude_node(&self, nodes: &[Node]) -> bool {
-        self.options
-            .exclude_node
-            .as_ref()
-            .map(|e| !nodes.contains(e))
-            .unwrap_or(true)
     }
 
     fn start_nodes(&self, nodes: &[Node]) -> bool {
@@ -3120,8 +3097,6 @@ mod tests {
             text.unwrap_or(expected.line.clone()).as_str(),
             &m,
             GrepOptions {
-                include_node: None,
-                exclude_node: None,
                 start_nodes: None,
                 end_nodes: None,
             },
@@ -3145,50 +3120,10 @@ mod tests {
     }
 
     #[rstest]
-    // include_node
-    #[case(
-        "foo",
-        "def test; foo.bar(); end;",
-        Some(Node::Send),
-        None,
-        None,
-        None,
-        true
-    )]
-    #[case(
-        "def",
-        "def test; foo.bar(); end;",
-        Some(Node::Send),
-        None,
-        None,
-        None,
-        false
-    )]
-    // exclude_node
-    #[case(
-        "test",
-        "def test; foo.bar(); end;",
-        None,
-        Some(Node::Send),
-        None,
-        None,
-        true
-    )]
-    #[case(
-        "foo",
-        "def test; foo.bar(); end;",
-        None,
-        Some(Node::Send),
-        None,
-        None,
-        false
-    )]
     // start_nodes
     #[case(
         "foo",
         "def test; foo.bar(); end;",
-        None,
-        None,
         Some(vec![Node::Def, Node::Send]),
         None,
         true
@@ -3196,8 +3131,6 @@ mod tests {
     #[case(
         "far",
         "def test; foo.bar(); end;",
-        None,
-        None,
         None,
         Some(vec![Node::Send]),
         false
@@ -3207,8 +3140,6 @@ mod tests {
         "foo",
         "def test; foo.bar(); end;",
         None,
-        None,
-        None,
         Some(vec![Node::Send, Node::Send]),
         true
     )]
@@ -3216,16 +3147,12 @@ mod tests {
         "test",
         "def test; foo.bar(); end;",
         None,
-        None,
-        None,
         Some(vec![Node::Send]),
         false
     )]
     fn grep_search_options(
         #[case] query: String,
         #[case] text: String,
-        #[case] include_node: Option<Node>,
-        #[case] exclude_node: Option<Node>,
         #[case] start_nodes: Option<Vec<Node>>,
         #[case] end_nodes: Option<Vec<Node>>,
         #[case] expected: bool,
@@ -3235,8 +3162,6 @@ mod tests {
             text.as_str(),
             &m,
             GrepOptions {
-                include_node: include_node,
-                exclude_node: exclude_node,
                 start_nodes: start_nodes,
                 end_nodes: end_nodes,
             },
