@@ -71,6 +71,10 @@ pub struct Cli {
     #[arg(long)]
     no_color: bool,
 
+    /// Print only matched parts of a line.
+    #[arg(short, long)]
+    only_matching: bool,
+
     /// Show lines before and after each match.
     #[arg(short = 'C', long)]
     context: Option<usize>,
@@ -266,6 +270,7 @@ impl Cli {
                             self.with_nodes,
                             !self.no_file_name,
                             !self.no_line_no,
+                            self.only_matching,
                             self.context_separator
                                 .clone()
                                 .unwrap_or(DEFAULT_SEPARATOR.to_string()),
@@ -388,6 +393,7 @@ mod tests {
             regexp,
             start_nodes: None,
             end_nodes: None,
+            only_matching: false,
             no_git_ignore: false,
             no_file_name: false,
             no_line_no: false,
@@ -440,6 +446,7 @@ mod tests {
             regexp: false,
             start_nodes: None,
             end_nodes: None,
+            only_matching: false,
             no_git_ignore: false,
             no_file_name: false,
             no_line_no: false,

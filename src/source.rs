@@ -204,6 +204,7 @@ impl FileResult {
         with_nodes: bool,
         with_filename: bool,
         with_lineno: bool,
+        only_matching: bool,
         separator: String,
         before_context: Option<usize>,
         after_context: Option<usize>,
@@ -257,10 +258,10 @@ impl FileResult {
                         with_lineno
                             .then(|| format!("{}{}", ":".cyan(), (r.row + 1).to_string().cyan()))
                             .unwrap_or("".to_string()),
-                        r,
+                        r.to_result_string(only_matching),
                     ))
                 } else {
-                    Some(format!("{}\n", r))
+                    Some(format!("{}\n", r.to_result_string(only_matching)))
                 };
 
                 let after = after_context.map(|a| {
@@ -367,10 +368,8 @@ impl LineResult {
             .collect::<Vec<String>>()
             .join(" > ")
     }
-}
 
-impl fmt::Display for LineResult {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    pub fn to_result_string(&self, only_matching: bool) -> String {
         let start_text = &self.line[..self.column_start];
         let match_text = &self.line[self.column_start..self.column_end];
         let end = if match_text.starts_with('"') || match_text.starts_with('\'') {
@@ -381,7 +380,11 @@ impl fmt::Display for LineResult {
         let match_text = &self.line[self.column_start..end];
         let end_text = &self.line[end..];
 
-        write!(f, "{}{}{}", start_text, match_text.red().bold(), end_text,)
+        if only_matching {
+            format!("{}", match_text.red().bold())
+        } else {
+            format!("{}{}{}", start_text, match_text.red().bold(), end_text,)
+        }
     }
 }
 
@@ -3302,6 +3305,7 @@ mod tests {
                 with_nodes,
                 with_filename,
                 with_lineno,
+                false,
                 "--".to_string(),
                 before_context,
                 after_context,
