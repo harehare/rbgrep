@@ -195,7 +195,7 @@ impl Cli {
                 Err(e) => Err(anyhow::anyhow!(e)),
             }
         } else {
-            let m = TextMatcher::new(self.query.to_string(), self.exact_match, self.ignore_case);
+            let m = TextMatcher::new(self.query.to_string(), self.exact_match, !self.ignore_case);
             let results = match self.stdin.as_ref() {
                 Some(stdin) => {
                     let source = Source::new(
