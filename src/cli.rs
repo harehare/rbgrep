@@ -1,4 +1,5 @@
 use crate::matcher::{RegexMatcher, TextMatcher};
+use crate::render::{self, Render};
 use crate::source::{GrepOptions, GrepResult, Node, Source};
 use anyhow::Result;
 use clap::Parser;
@@ -6,6 +7,7 @@ use clap_stdin::MaybeStdIn;
 use colored::*;
 use ignore::{overrides::OverrideBuilder, types::TypesBuilder, WalkBuilder};
 use rayon::prelude::*;
+use std::io::StdoutLock;
 use std::{
     env, fs,
     io::{stdout, BufWriter, Write},
@@ -262,24 +264,28 @@ impl Cli {
         match result {
             GrepResult::FileResult(r) => {
                 if self.count {
-                    out.write_all(r.to_count_string(!self.no_file_name).as_bytes())
+                    let count_render = render::CountRender {
+                        with_filename: !self.no_file_name,
+                    };
+                    count_render
+                        .render::<BufWriter<StdoutLock>>(&mut out, r)
                         .expect("write failed");
                 } else if !self.quiet {
-                    out.write_all(
-                        r.to_result_string(
-                            self.with_nodes,
-                            !self.no_file_name,
-                            !self.no_line_no,
-                            self.only_matching,
-                            self.context_separator
-                                .clone()
-                                .unwrap_or(DEFAULT_SEPARATOR.to_string()),
-                            self.context.or(self.before_context),
-                            self.context.or(self.after_context),
-                        )
-                        .as_bytes(),
-                    )
-                    .expect("write failed");
+                    let text_render = render::TextRender {
+                        with_nodes: self.with_nodes,
+                        with_filename: !self.no_file_name,
+                        with_lineno: !self.no_line_no,
+                        only_matching: self.only_matching,
+                        separator: self
+                            .context_separator
+                            .clone()
+                            .unwrap_or(DEFAULT_SEPARATOR.to_string()),
+                        before_context: self.context.or(self.before_context),
+                        after_context: self.context.or(self.after_context),
+                    };
+                    text_render
+                        .render::<BufWriter<StdoutLock>>(&mut out, r)
+                        .expect("write failed");
                 }
             }
             GrepResult::FileErrorResult(errors) => {

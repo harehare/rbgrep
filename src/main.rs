@@ -4,6 +4,7 @@ use std::process::ExitCode;
 
 mod cli;
 mod matcher;
+mod render;
 mod source;
 
 fn main() -> ExitCode {
