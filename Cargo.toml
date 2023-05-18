@@ -1,9 +1,9 @@
 [package]
-description = "rbgrep is a line-oriented search cli tool that recursively searches ruby files in the current directory for a regex patterns."
+description = "rbgrep is a AST-based line-oriented search cli tool that recursively searches ruby files in the current directory for a regex patterns."
 edition = "2021"
 license = "MIT"
 name = "rbgrep"
-version = "0.1.2"
+version = "0.1.4"
 
 [[bin]]
 name = "rbgrep"
@@ -19,6 +19,8 @@ itertools = "0.10.5"
 lib-ruby-parser = "4.0.4"
 rayon = "1.7.0"
 regex = "1.7.3"
+serde = {version = "1.0.163", features = ["derive"]}
+serde_json = "1.0.96"
 strum = "0.24.1"
 strum_macros = "0.24.3"
 tap = "1.0.1"

@@ -19,7 +19,7 @@ use tap::Tap;
 #[derive(Parser)]
 #[command(name = "rbgrep")]
 #[command(author = "Takahiro Sato. <harehare1110@gmail.com>")]
-#[command(version = "0.1.3")]
+#[command(version = "0.1.4")]
 #[command(
     about = "rbgrep is a line-oriented search cli tool that recursively searches ruby files in the current directory for a regex patterns.",
     long_about = None
@@ -108,6 +108,10 @@ pub struct Cli {
     /// The maximum depth to recurse.
     #[arg(long)]
     max_depth: Option<usize>,
+
+    /// Show search results in a JSON format.
+    #[arg(short, long)]
+    json: bool,
 
     /// Do not output matched lines. instead, exit with status 0 when there is a match and with non-zero status when there isn’t.
     #[arg(short, long)]
@@ -263,15 +267,17 @@ impl Cli {
 
         match result {
             GrepResult::FileResult(r) => {
-                if self.count {
-                    let count_render = render::CountRender {
+                (if self.count {
+                    render::CountRender {
                         with_filename: !self.no_file_name,
-                    };
-                    count_render
-                        .render::<BufWriter<StdoutLock>>(&mut out, r)
-                        .expect("write failed");
-                } else if !self.quiet {
-                    let text_render = render::TextRender {
+                    }
+                    .render::<BufWriter<StdoutLock>>(&mut out, r)
+                } else if self.quiet {
+                    render::QuietRender {}.render::<BufWriter<StdoutLock>>(&mut out, r)
+                } else if self.json {
+                    render::JsonRender {}.render::<BufWriter<StdoutLock>>(&mut out, r)
+                } else {
+                    render::TextRender {
                         with_nodes: self.with_nodes,
                         with_filename: !self.no_file_name,
                         with_lineno: !self.no_line_no,
@@ -282,11 +288,10 @@ impl Cli {
                             .unwrap_or(DEFAULT_SEPARATOR.to_string()),
                         before_context: self.context.or(self.before_context),
                         after_context: self.context.or(self.after_context),
-                    };
-                    text_render
-                        .render::<BufWriter<StdoutLock>>(&mut out, r)
-                        .expect("write failed");
-                }
+                    }
+                    .render::<BufWriter<StdoutLock>>(&mut out, r)
+                })
+                .expect("write failed");
             }
             GrepResult::FileErrorResult(errors) => {
                 out.write_all(format!("{}\n", errors).as_bytes())

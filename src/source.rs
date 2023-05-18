@@ -3,9 +3,10 @@ use clap::ValueEnum;
 use colored::*;
 use itertools::Itertools;
 use lib_ruby_parser::{source::DecodedInput, Diagnostic, Loc, Parser, ParserOptions, ParserResult};
+use serde::Serialize;
 use std::{fmt, vec};
 
-#[derive(Debug, PartialEq, Clone, ValueEnum, strum_macros::Display)]
+#[derive(Debug, PartialEq, Clone, ValueEnum, strum_macros::Display, Serialize)]
 pub enum Node {
     Alias,
     And,
@@ -138,14 +139,16 @@ pub struct GrepOptions {
     pub end_nodes: Option<Vec<Node>>,
 }
 
+#[derive(Serialize)]
 pub enum GrepResult {
     FileResult(FileResult),
     FileErrorResult(FileErrorResult),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct LineErrorResult {
     message: String,
+    #[serde(skip_serializing)]
     is_warning: bool,
     loc: (usize, usize),
 }
@@ -172,7 +175,7 @@ impl fmt::Display for LineErrorResult {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct FileErrorResult {
     path: String,
     errors: Vec<LineErrorResult>,
@@ -191,14 +194,17 @@ impl fmt::Display for FileErrorResult {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct FileResult {
+    #[serde(rename(serialize = "fileName"))]
     pub filename: String,
+    #[serde(skip_serializing)]
     pub lines: Vec<String>,
     pub results: Vec<LineResult>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LineResult {
     pub line: String,
     pub row: usize,
