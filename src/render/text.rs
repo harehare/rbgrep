@@ -147,26 +147,10 @@ mod tests {
     use crate::source::{LineResult, Node};
     use rstest::rstest;
 
-    fn line_result(
-        line: String,
-        row: usize,
-        column_start: usize,
-        column_end: usize,
-        nodes: Vec<Node>,
-    ) -> LineResult {
-        LineResult {
-            line,
-            row,
-            nodes,
-            column_start,
-            column_end,
-        }
-    }
-
     #[rstest]
     #[case(
         vec!["class Test".to_string()],
-        vec![line_result("class Test".to_string(), 0, 6, 8, vec![Node::Class])],
+        vec![LineResult {line: "class Test".to_string(), row: 0, column_start: 6, column_end: 8, nodes: vec![Node::Class]}],
         false,
         false,
         false,
@@ -176,7 +160,7 @@ mod tests {
     )]
     #[case(
         vec!["class Test".to_string()],
-        vec![line_result("class Test".to_string(), 0, 6, 8, vec![Node::Class])],
+        vec![LineResult {line: "class Test".to_string(), row: 0, column_start: 6, column_end: 8, nodes: vec![Node::Class]}],
         false,
         true,
         false,
@@ -186,7 +170,7 @@ mod tests {
     )]
     #[case(
         vec!["class Test".to_string()],
-        vec![line_result("class Test".to_string(), 0, 6, 8, vec![Node::Class])],
+        vec![LineResult {line: "class Test".to_string(), row: 0, column_start: 6, column_end: 8, nodes: vec![Node::Class]}],
         false,
         true,
         true,
@@ -197,7 +181,7 @@ mod tests {
     // before_context
     #[case(
         vec!["class Test"," def test", "end"].iter().map(|x| x.to_string()).collect(),
-        vec![line_result("def test".to_string(), 1, 5, 8, vec![Node::Class])],
+        vec![LineResult {line: "def test".to_string(), row: 1, column_start: 5, column_end: 8, nodes: vec![Node::Class]}],
         false,
         true,
         true,
@@ -207,7 +191,7 @@ mod tests {
     )]
     #[case(
         vec!["class Test"," def test", "end"].iter().map(|x| x.to_string()).collect(),
-        vec![line_result("def test".to_string(), 1, 5, 8, vec![Node::Class])],
+        vec![LineResult {line: "def test".to_string(), row: 1, column_start: 5, column_end: 8, nodes: vec![Node::Class]}],
         false,
         false,
         false,
@@ -218,7 +202,7 @@ mod tests {
     // after_context
     #[case(
         vec!["class Test", "def test", "end"].iter().map(|x| x.to_string()).collect(),
-        vec![line_result("def test".to_string(), 1, 5, 8, vec![Node::Class])],
+        vec![LineResult {line: "def test".to_string(), row: 1, column_start: 5, column_end: 8, nodes: vec![Node::Class]}],
         false,
         true,
         true,
@@ -228,7 +212,7 @@ mod tests {
     )]
     #[case(
         vec!["class Test", "def test", "end"].iter().map(|x| x.to_string()).collect(),
-        vec![line_result("def test".to_string(), 1, 5, 8, vec![Node::Class])],
+        vec![LineResult {line: "def test".to_string(), row: 1, column_start: 5, column_end: 8, nodes: vec![Node::Class]}],
         false,
         false,
         false,
@@ -239,7 +223,7 @@ mod tests {
     //with_nodes
     #[case(
         vec!["class Test", "def test", "end"].iter().map(|x| x.to_string()).collect(),
-        vec![line_result("def test".to_string(), 1, 5, 8, vec![Node::Class, Node::Def])],
+        vec![LineResult {line: "def test".to_string(), row: 1, column_start: 5, column_end: 8, nodes: vec![Node::Class, Node::Def]}],
         true,
         false,
         false,
@@ -249,7 +233,7 @@ mod tests {
     )]
     #[case(
         vec!["class Test", "def test", "end"].iter().map(|x| x.to_string()).collect(),
-        vec![line_result("def test".to_string(), 1, 5, 8, vec![Node::Class, Node::Def])],
+        vec![LineResult {line: "def test".to_string(), row: 1, column_start: 5, column_end: 8, nodes: vec![Node::Class, Node::Def]}],
         true,
         true,
         true,
@@ -257,7 +241,7 @@ mod tests {
         None,
         "Class > Def\nfile:2 def test\n--\n".to_string(),
     )]
-    fn test_print_result(
+    fn test_render_result(
         #[case] lines: Vec<String>,
         #[case] results: Vec<LineResult>,
         #[case] with_nodes: bool,

@@ -422,6 +422,7 @@ mod tests {
             query: query,
             path: Some(vec![dir.to_str().unwrap().to_string()]),
             stdin: None,
+            json: false,
         };
 
         assert_eq!(cli.run().is_ok(), expected);
@@ -475,6 +476,7 @@ mod tests {
             query: query,
             path: Some(vec![file.path().to_str().unwrap().to_string()]),
             stdin: is_stdin.then_some(MaybeStdIn::from_str(text.as_str()).unwrap()),
+            json: false,
         };
 
         assert_eq!(cli.run().is_ok(), expected);

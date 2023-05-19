@@ -29,36 +29,20 @@ mod tests {
     use crate::source::{LineResult, Node};
     use rstest::rstest;
 
-    fn line_result(
-        line: String,
-        row: usize,
-        column_start: usize,
-        column_end: usize,
-        nodes: Vec<Node>,
-    ) -> LineResult {
-        LineResult {
-            line,
-            row,
-            nodes,
-            column_start,
-            column_end,
-        }
-    }
-
     #[rstest]
     #[case(
         vec!["class Test".to_string()],
-        vec![line_result("class Test".to_string(), 0, 6, 8, vec![Node::Class])],
+        vec![LineResult {line: "class Test".to_string(), row: 0, column_start: 6, column_end: 8, nodes: vec![Node::Class]}],
         false,
         "1\n".to_string(),
     )]
     #[case(
         vec!["class Test".to_string()],
-        vec![line_result("class Test".to_string(), 0, 6, 8, vec![Node::Class])],
+        vec![LineResult {line: "class Test".to_string(), row: 0, column_start: 6, column_end: 8, nodes: vec![Node::Class]}],
         true,
         "file:1\n".to_string(),
     )]
-    fn test_print_count(
+    fn test_render_count(
         #[case] lines: Vec<String>,
         #[case] results: Vec<LineResult>,
         #[case] with_filename: bool,
