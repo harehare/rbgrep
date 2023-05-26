@@ -26,7 +26,7 @@ impl Render for CountRender {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::source::{LineResult, Node};
+    use crate::{node::Node, source::LineResult};
     use rstest::rstest;
 
     #[rstest]

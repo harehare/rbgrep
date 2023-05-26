@@ -1,6 +1,7 @@
 use crate::matcher::{RegexMatcher, TextMatcher};
+use crate::node::Node;
 use crate::render::{self, Render};
-use crate::source::{GrepOptions, GrepResult, Node, Source};
+use crate::source::{GrepOptions, GrepResult, Source};
 use anyhow::Result;
 use clap::Parser;
 use clap_stdin::MaybeStdIn;
