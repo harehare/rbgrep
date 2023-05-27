@@ -5,6 +5,7 @@ use lib_ruby_parser::{Parser, ParserOptions, ParserResult};
 
 pub struct PatternMatcher {
     values: Vec<NodeValue>,
+    nodes: Vec<Node>,
 }
 
 impl PatternMatcher {
@@ -27,8 +28,16 @@ impl PatternMatcher {
                 .collect::<Vec<String>>()
                 .join("\n")))
         } else {
+            let node_values = ast.map(|root| parse(&root, vec![])).unwrap_or(vec![]);
             Ok(PatternMatcher {
-                values: ast.map(|root| parse(&root, vec![])).unwrap_or(vec![]),
+                values: node_values.clone(),
+                nodes: node_values
+                    .into_iter()
+                    .map(|n| {
+                        let NodeValue(_, node) = n;
+                        node
+                    })
+                    .collect::<Vec<Node>>(),
             })
         }
     }
@@ -36,7 +45,15 @@ impl PatternMatcher {
 
 impl Matcher for PatternMatcher {
     fn is_match(&self, node_path: NodePath) -> bool {
-        unimplemented!();
+        // TODO:
+        println!("node_path = {:?}", node_path);
+        println!("self ={:?}", &self.nodes);
+
+        if node_path.1.len() > self.nodes.len() {
+            node_path.1.ends_with(&self.nodes)
+        } else {
+            self.nodes.ends_with(&node_path.1)
+        }
     }
 }
 
@@ -69,7 +86,7 @@ fn parse(node: &lib_ruby_parser::Node, parent: Vec<NodeValue>) -> Vec<NodeValue>
             parent,
             node.args
                 .iter()
-                .flat_map(|arg| parse(arg, vec![NodeValue(None, Node::Arg)]))
+                .flat_map(|arg| parse(arg, vec![NodeValue(None, Node::Args)]))
                 .collect(),
         ]),
 
@@ -149,10 +166,10 @@ fn parse(node: &lib_ruby_parser::Node, parent: Vec<NodeValue>) -> Vec<NodeValue>
         lib_ruby_parser::Node::CSend(node) => itertools::concat(vec![
             parent,
             vec![NodeValue(Some(node.method_name.clone()), Node::CSend)],
-            parse(&node.recv, vec![NodeValue(None, Node::Break)]),
+            parse(&node.recv, vec![]),
             node.args
                 .iter()
-                .flat_map(|statement| parse(&statement, vec![NodeValue(None, Node::CSend)]))
+                .flat_map(|statement| parse(&statement, vec![]))
                 .collect(),
         ]),
 
@@ -255,11 +272,11 @@ fn parse(node: &lib_ruby_parser::Node, parent: Vec<NodeValue>) -> Vec<NodeValue>
             vec![NodeValue(Some(node.name.clone()), Node::Def)],
             node.args
                 .as_ref()
-                .map(|args| parse(args, vec![NodeValue(None, Node::Def)]))
+                .map(|args| parse(args, vec![]))
                 .unwrap_or(vec![]),
             node.body
                 .as_ref()
-                .map(|body| parse(body, vec![NodeValue(None, Node::Def)]))
+                .map(|body| parse(body, vec![]))
                 .unwrap_or(vec![]),
         ]),
 
@@ -272,11 +289,11 @@ fn parse(node: &lib_ruby_parser::Node, parent: Vec<NodeValue>) -> Vec<NodeValue>
             parent,
             node.body
                 .as_ref()
-                .map(|body| parse(body, vec![NodeValue(None, Node::Defs)]))
+                .map(|body| parse(body, vec![]))
                 .unwrap_or(vec![]),
             node.args
                 .as_ref()
-                .map(|args| parse(args, vec![NodeValue(None, Node::Defs)]))
+                .map(|args| parse(args, vec![]))
                 .unwrap_or(vec![]),
             vec![NodeValue(Some(node.name.clone()), Node::Defs)],
         ]),
@@ -626,7 +643,7 @@ fn parse(node: &lib_ruby_parser::Node, parent: Vec<NodeValue>) -> Vec<NodeValue>
             vec![NodeValue(Some(node.name.clone()), Node::Lvasgn)],
             node.value
                 .as_ref()
-                .map(|value| parse(&value, vec![NodeValue(None, Node::Lvasgn)]))
+                .map(|value| parse(&value, vec![]))
                 .unwrap_or(vec![]),
         ]),
 
@@ -923,11 +940,11 @@ fn parse(node: &lib_ruby_parser::Node, parent: Vec<NodeValue>) -> Vec<NodeValue>
             vec![NodeValue(Some(node.method_name.clone()), Node::Send)],
             node.recv
                 .as_ref()
-                .map(|node| parse(node, vec![NodeValue(None, Node::Send)]))
+                .map(|node| parse(node, vec![]))
                 .unwrap_or(vec![]),
             node.args
                 .iter()
-                .flat_map(|statement| parse(statement, vec![NodeValue(None, Node::Send)]))
+                .flat_map(|statement| parse(statement, vec![]))
                 .collect(),
         ]),
 
@@ -1072,17 +1089,52 @@ mod tests {
 
     #[rstest]
     #[case("test.method", vec![NodeValue(Some("method".to_string()), Node::Send),
-                               NodeValue(None, Node::Send),
                                NodeValue(Some("test".to_string()), Node::Send)])]
+    #[case("foo && bar", vec![NodeValue(None, Node::And),
+                              NodeValue(Some("foo".to_string()), Node::Send),
+                              NodeValue(None, Node::And),
+                              NodeValue(Some("bar".to_string()), Node::Send)])]
+    #[case("foo &&= bar", vec![NodeValue(None, Node::AndAsgn),
+                               NodeValue(Some("foo".to_string()), Node::Lvasgn),
+                               NodeValue(None, Node::AndAsgn),
+                               NodeValue(Some("bar".to_string()), Node::Send)])]
+    #[case("[1, 'str', 1.0]", vec![NodeValue(None, Node::Array),
+                                   NodeValue(Some("1".to_string()), Node::Int),
+                                   NodeValue(None, Node::Array),
+                                   NodeValue(Some("str".to_string()), Node::Str),
+                                   NodeValue(None, Node::Array),
+                                   NodeValue(Some("1.0".to_string()), Node::Float)])]
+    #[case("break :foo", vec![NodeValue(None, Node::Break), NodeValue(Some("foo".to_string()), Node::Sym)])]
+    #[case("CONST = 1", vec![NodeValue(Some("CONST".to_string()), Node::Casgn), NodeValue(None, Node::Casgn), NodeValue(Some("1".to_string()), Node::Int)])]
+    #[case("foo&.bar(42)", vec![NodeValue(Some("bar".to_string()), Node::CSend),
+                                NodeValue(Some("foo".to_string()), Node::Send),
+                                NodeValue(Some("42".to_string()), Node::Int)])]
+    #[case("def test(vvvv)
+              puts 'vvv'
+            end", vec![NodeValue(Some("test".to_string()), Node::Def),
+                       NodeValue(None, Node::Args),
+                       NodeValue(Some("vvvv".to_string()), Node::Arg),
+                       NodeValue(Some("puts".to_string()), Node::Send),
+                       NodeValue(Some("vvv".to_string()), Node::Str)])]
     #[case("foo = 1", vec![NodeValue(Some("foo".to_string()), Node::Lvasgn),
-                           NodeValue(None, Node::Lvasgn),
                            NodeValue(Some("1".to_string()), Node::Int)])]
     #[case("alias :foo :var", vec![NodeValue(None, Node::Alias),
                                    NodeValue(Some("foo".to_string()), Node::Sym),
                                    NodeValue(None, Node::Alias),
                                    NodeValue(Some("var".to_string()), Node::Sym)])]
+    #[case("yield foo, row: bar", vec![NodeValue(None, Node::Yield),
+                                       NodeValue(Some("foo".to_string()), Node::Send),
+                                       NodeValue(None, Node::Yield),
+                                       NodeValue(None, Node::Kwargs),
+                                       NodeValue(None, Node::Pair),
+                                       NodeValue(Some("row".to_string()), Node::Sym),
+                                       NodeValue(None, Node::Pair),
+                                       NodeValue(Some("bar".to_string()), Node::Send)])]
     fn parse_pattern(#[case] pattern: String, #[case] expected: Vec<NodeValue>) {
         let matcher = PatternMatcher::new(pattern).unwrap();
+
+        // TODO:
+        println!("{:?}", matcher.values);
 
         assert_eq!(matcher.values, expected);
     }

@@ -323,7 +323,7 @@ impl<'a, T: Matcher> Source<'a, T> {
                 .iter()
                 .flat_map(|arg| {
                     self.search(
-                        itertools::concat(vec![parent.clone(), vec![Node::Arg]]),
+                        itertools::concat(vec![parent.clone(), vec![Node::Args]]),
                         arg,
                         input,
                     )
@@ -2749,7 +2749,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::matcher::TextMatcher;
+    use crate::matcher::{PatternMatcher, TextMatcher};
     use rstest::rstest;
 
     #[rstest]
@@ -2762,15 +2762,15 @@ mod tests {
     // def
     #[case("def_test", None, LineResult {line: "def def_test; end".to_string(), row: 0, column_start: 4, column_end: 12, nodes: vec![Node::Def]})]
     #[case("def_test", None, LineResult {line: "def def_test; puts 'bar'; end".to_string(), row: 0, column_start: 4, column_end: 12, nodes: vec![Node::Def]})]
-    #[case("rest_test", None, LineResult {line: "def m(*rest_test); end".to_string(), row: 0, column_start: 6, column_end: 15, nodes: vec![Node::Def, Node::Arg, Node::Restarg]})]
+    #[case("rest_test", None, LineResult {line: "def m(*rest_test); end".to_string(), row: 0, column_start: 6, column_end: 15, nodes: vec![Node::Def, Node::Args, Node::Restarg]})]
     #[case("undef_test", None, LineResult {line: "undef undef_test, row: :test".to_string(), row: 0, column_start : 6, column_end : 17, nodes: vec![Node::Undef, Node::Sym]})]
     #[case("foo", None, LineResult {line: "def x.foo(args); puts 'v'; end".to_string(), row: 0, column_start: 6, column_end: 9, nodes: vec![Node::Defs]})]
-    #[case("foo", None, LineResult {line: "def m(**foo); end".to_string(), row: 0, column_start: 6, column_end: 9, nodes: vec![Node::Def, Node::Arg, Node::Kwrestarg]})]
-    #[case("foo", None, LineResult {line: "def m(foo: 1); end".to_string(), row: 0, column_start: 6, column_end: 9, nodes: vec![Node::Def, Node::Arg, Node::Kwoptarg]})]
-    #[case("1", None, LineResult {line: "def m(foo: 1); end".to_string(), row: 0, column_start: 11, column_end: 12, nodes: vec![Node::Def, Node::Arg, Node::Kwoptarg, Node::Int]})]
-    #[case("nil", None, LineResult {line: "def m(**nil); end".to_string(), row: 0, column_start: 6, column_end: 11, nodes: vec![Node::Def, Node::Arg, Node::Kwnilarg]})]
-    #[case("bar", None, LineResult {line: "def foo(bar:); end".to_string(), row: 0, column_start: 8, column_end: 11, nodes: vec![Node::Def, Node::Arg, Node::Kwarg]})]
-    #[case("...", None, LineResult {line: "def m(...); end".to_string(), row: 0, column_start: 6, column_end: 9, nodes: vec![Node::Def, Node::Arg, Node::ForwardArg]})]
+    #[case("foo", None, LineResult {line: "def m(**foo); end".to_string(), row: 0, column_start: 6, column_end: 9, nodes: vec![Node::Def, Node::Args, Node::Kwrestarg]})]
+    #[case("foo", None, LineResult {line: "def m(foo: 1); end".to_string(), row: 0, column_start: 6, column_end: 9, nodes: vec![Node::Def, Node::Args, Node::Kwoptarg]})]
+    #[case("1", None, LineResult {line: "def m(foo: 1); end".to_string(), row: 0, column_start: 11, column_end: 12, nodes: vec![Node::Def, Node::Args, Node::Kwoptarg, Node::Int]})]
+    #[case("nil", None, LineResult {line: "def m(**nil); end".to_string(), row: 0, column_start: 6, column_end: 11, nodes: vec![Node::Def, Node::Args, Node::Kwnilarg]})]
+    #[case("bar", None, LineResult {line: "def foo(bar:); end".to_string(), row: 0, column_start: 8, column_end: 11, nodes: vec![Node::Def, Node::Args, Node::Kwarg]})]
+    #[case("...", None, LineResult {line: "def m(...); end".to_string(), row: 0, column_start: 6, column_end: 9, nodes: vec![Node::Def, Node::Args, Node::ForwardArg]})]
     // sym
     #[case("sym", None, LineResult {line: "var.try(:sym)".to_string(), row: 0, column_start: 8, column_end: 12, nodes: vec![Node::Send, Node::Sym]})]
     #[case("foo", None, LineResult {line: ":\"#{foo}\"".to_string(), row: 0, column_start: 4, column_end: 7, nodes: vec![Node::Dsym, Node::Begin, Node::Send]})]
@@ -2846,7 +2846,7 @@ mod tests {
     // block pass
     #[case("block_test", None, LineResult {line: "foo(&block_test)".to_string(), row: 0, column_start: 5, column_end: 15, nodes: vec![Node::Send, Node::BlockPass, Node::Send]})]
     // block args
-    #[case("foo", None, LineResult {line: "def m(&foo); end".to_string(), row: 0, column_start: 6, column_end: 9, nodes: vec![Node::Def, Node::Arg, Node::Blockarg]})]
+    #[case("foo", None, LineResult {line: "def m(&foo); end".to_string(), row: 0, column_start: 6, column_end: 9, nodes: vec![Node::Def, Node::Args, Node::Blockarg]})]
     // break
     #[case("break_test", None, LineResult {line: "break :break_test".to_string(), row: 0, column_start: 6, column_end: 17, nodes: vec![Node::Break, Node::Sym]})]
     // csend
@@ -2862,7 +2862,7 @@ mod tests {
     // super
     #[case("super", None, LineResult {line: "super(1, row: 2)".to_string(), row: 0, column_start: 0, column_end: 5, nodes: vec![Node::Super]})]
     // shadowarg
-    #[case("shadow", None, LineResult {line: "proc { |;shadow|}".to_string(), row: 0, column_start: 9, column_end: 15, nodes: vec![Node::Block, Node::Arg, Node::Shadowarg]})]
+    #[case("shadow", None, LineResult {line: "proc { |;shadow|}".to_string(), row: 0, column_start: 9, column_end: 15, nodes: vec![Node::Block, Node::Args, Node::Shadowarg]})]
     // self
     #[case("self", None, LineResult {line: "self.vvvv".to_string(), row: 0, column_start: 0, column_end: 4, nodes: vec![Node::Send, Node::Self_]})]
     // splat
@@ -2877,7 +2877,7 @@ mod tests {
     // redo
     #[case("redo", None, LineResult {line: "redo if test".to_string(), row: 0, column_start: 0, column_end: 4, nodes: vec![Node::IfMod, Node::Redo]})]
     // proc
-    #[case("proc1", None, LineResult {line: "proc { |(proc1, proc2)| }".to_string(), row: 0, column_start: 9, column_end: 14, nodes: vec![Node::Block, Node::Arg, Node::Procarg0, Node::Arg]})]
+    #[case("proc1", None, LineResult {line: "proc { |(proc1, proc2)| }".to_string(), row: 0, column_start: 9, column_end: 14, nodes: vec![Node::Block, Node::Args, Node::Procarg0, Node::Arg]})]
     // preexe
     #[case("BEGIN", None, LineResult {line: "BEGIN { 1 }".to_string(), row: 0, column_start: 0, column_end: 5, nodes: vec![Node::Preexe]})]
     // postexe
@@ -2888,7 +2888,7 @@ mod tests {
     // or
     #[case("bar", None, LineResult {line: "foo || bar".to_string(), row: 0, column_start: 7, column_end: 10, nodes: vec![Node::Or, Node::Send]})]
     // optarg
-    #[case("bar", None, LineResult {line: "def foo(bar = 1); end".to_string(), row: 0, column_start: 8, column_end: 11, nodes: vec![Node::Def, Node::Arg, Node::Optarg]})]
+    #[case("bar", None, LineResult {line: "def foo(bar = 1); end".to_string(), row: 0, column_start: 8, column_end: 11, nodes: vec![Node::Def, Node::Args, Node::Optarg]})]
     // num block
     #[case("_2", None, LineResult {line: "proc { _2 }".to_string(), row: 0, column_start: 5, column_end: 8, nodes: vec![Node::Numblock]})]
     // nthref
@@ -3030,5 +3030,24 @@ mod tests {
             LineResult::new(0, "".to_string(), nodes, 0, 0).to_nodes_string(),
             expected
         );
+    }
+
+    #[rstest]
+    #[case("foo2.bar2()", "def test; foo.bar(); end;", true)]
+    #[case("def test(vvv); end", "def test(vvv); foo.bar(); end;", true)]
+    #[case("foo = 1", "foo = 1", true)]
+    #[case("alias :foo :var", "alias :foo :var", true)]
+    fn pattern_search(#[case] query: String, #[case] text: String, #[case] expected: bool) {
+        let m = PatternMatcher::new(query.to_string()).unwrap();
+        let source = Source::new(
+            text.as_str(),
+            &m,
+            GrepOptions {
+                start_nodes: None,
+                end_nodes: None,
+            },
+        );
+        let actual = source.grep("");
+        assert_eq!(actual.is_some(), expected);
     }
 }
