@@ -17,7 +17,10 @@ impl Render for JsonRender {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{node::Node, source::LineResult};
+    use crate::{
+        node::{Node, Nodes},
+        source::LineResult,
+    };
     use rstest::rstest;
 
     struct ErrorWrite {}
@@ -35,12 +38,12 @@ mod tests {
     #[rstest]
     #[case(
         vec!["class Test".to_string()],
-        vec![LineResult {line:"class Test".to_string(), row: 0, column_start: 6, column_end: 8, nodes:vec![Node::Class]}],
+        vec![LineResult {line:"class Test".to_string(), row: 0, column_start: 6, column_end: 8, nodes:Nodes::new(vec![Node::Class])}],
         "{\"fileName\":\"file\",\"results\":[{\"line\":\"class Test\",\"row\":0,\"nodes\":[\"Class\"],\"columnStart\":6,\"columnEnd\":8}]}".to_string(),
     )]
     #[case(
         vec!["class Test".to_string()],
-        vec![LineResult {line:"class Test".to_string(), row: 0, column_start: 6, column_end: 8, nodes: vec![Node::Class]}],
+        vec![LineResult {line:"class Test".to_string(), row: 0, column_start: 6, column_end: 8, nodes: Nodes::new(vec![Node::Class])}],
         "{\"fileName\":\"file\",\"results\":[{\"line\":\"class Test\",\"row\":0,\"nodes\":[\"Class\"],\"columnStart\":6,\"columnEnd\":8}]}".to_string(),
     )]
     fn test_render_json(

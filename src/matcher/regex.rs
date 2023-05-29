@@ -25,7 +25,7 @@ impl Matcher for RegexMatcher {
 
 #[cfg(test)]
 mod tests {
-    use crate::node::{Node, NodePath};
+    use crate::node::{Node, NodePath, Nodes};
 
     use super::*;
     use rstest::rstest;
@@ -35,12 +35,12 @@ mod tests {
     #[case("te.+", "tst_string", false)]
     #[should_panic]
     #[case("++", "TST_STRING", false)]
-    fn regex_match(#[case] regex: String, #[case] text: String, #[case] expected: bool) {
+    fn is_regex(#[case] regex: String, #[case] text: String, #[case] expected: bool) {
         assert_eq!(
             expected,
             RegexMatcher::new(regex.as_str())
                 .unwrap()
-                .is_match(NodePath(text, vec![Node::Begin]))
+                .is_match(NodePath(text, Nodes::new(vec![Node::Begin])))
         )
     }
 }

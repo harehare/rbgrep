@@ -6,9 +6,6 @@ pub use self::regex::RegexMatcher;
 mod text;
 pub use self::text::TextMatcher;
 
-mod pattern;
-pub use self::pattern::PatternMatcher;
-
 pub trait Matcher {
     fn is_match(&self, node_path: NodePath) -> bool;
 }

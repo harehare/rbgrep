@@ -144,13 +144,16 @@ impl Render for TextRender {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{node::Node, source::LineResult};
+    use crate::{
+        node::{Node, Nodes},
+        source::LineResult,
+    };
     use rstest::rstest;
 
     #[rstest]
     #[case(
         vec!["class Test".to_string()],
-        vec![LineResult {line: "class Test".to_string(), row: 0, column_start: 6, column_end: 8, nodes: vec![Node::Class]}],
+        vec![LineResult {line: "class Test".to_string(), row: 0, column_start: 6, column_end: 8, nodes: Nodes::new(vec![Node::Class])}],
         false,
         false,
         false,
@@ -160,7 +163,7 @@ mod tests {
     )]
     #[case(
         vec!["class Test".to_string()],
-        vec![LineResult {line: "class Test".to_string(), row: 0, column_start: 6, column_end: 8, nodes: vec![Node::Class]}],
+        vec![LineResult {line: "class Test".to_string(), row: 0, column_start: 6, column_end: 8, nodes: Nodes::new(vec![Node::Class])}],
         false,
         true,
         false,
@@ -170,7 +173,7 @@ mod tests {
     )]
     #[case(
         vec!["class Test".to_string()],
-        vec![LineResult {line: "class Test".to_string(), row: 0, column_start: 6, column_end: 8, nodes: vec![Node::Class]}],
+        vec![LineResult {line: "class Test".to_string(), row: 0, column_start: 6, column_end: 8, nodes: Nodes::new(vec![Node::Class])}],
         false,
         true,
         true,
@@ -181,7 +184,7 @@ mod tests {
     // before_context
     #[case(
         vec!["class Test"," def test", "end"].iter().map(|x| x.to_string()).collect(),
-        vec![LineResult {line: "def test".to_string(), row: 1, column_start: 5, column_end: 8, nodes: vec![Node::Class]}],
+        vec![LineResult {line: "def test".to_string(), row: 1, column_start: 5, column_end: 8, nodes: Nodes::new(vec![Node::Class])}],
         false,
         true,
         true,
@@ -191,7 +194,7 @@ mod tests {
     )]
     #[case(
         vec!["class Test"," def test", "end"].iter().map(|x| x.to_string()).collect(),
-        vec![LineResult {line: "def test".to_string(), row: 1, column_start: 5, column_end: 8, nodes: vec![Node::Class]}],
+        vec![LineResult {line: "def test".to_string(), row: 1, column_start: 5, column_end: 8, nodes: Nodes::new(vec![Node::Class])}],
         false,
         false,
         false,
@@ -202,7 +205,7 @@ mod tests {
     // after_context
     #[case(
         vec!["class Test", "def test", "end"].iter().map(|x| x.to_string()).collect(),
-        vec![LineResult {line: "def test".to_string(), row: 1, column_start: 5, column_end: 8, nodes: vec![Node::Class]}],
+        vec![LineResult {line: "def test".to_string(), row: 1, column_start: 5, column_end: 8, nodes: Nodes::new(vec![Node::Class])}],
         false,
         true,
         true,
@@ -212,7 +215,7 @@ mod tests {
     )]
     #[case(
         vec!["class Test", "def test", "end"].iter().map(|x| x.to_string()).collect(),
-        vec![LineResult {line: "def test".to_string(), row: 1, column_start: 5, column_end: 8, nodes: vec![Node::Class]}],
+        vec![LineResult {line: "def test".to_string(), row: 1, column_start: 5, column_end: 8, nodes: Nodes::new(vec![Node::Class])}],
         false,
         false,
         false,
@@ -223,7 +226,7 @@ mod tests {
     //with_nodes
     #[case(
         vec!["class Test", "def test", "end"].iter().map(|x| x.to_string()).collect(),
-        vec![LineResult {line: "def test".to_string(), row: 1, column_start: 5, column_end: 8, nodes: vec![Node::Class, Node::Def]}],
+        vec![LineResult {line: "def test".to_string(), row: 1, column_start: 5, column_end: 8, nodes: Nodes::new(vec![Node::Class, Node::Def])}],
         true,
         false,
         false,
@@ -233,7 +236,7 @@ mod tests {
     )]
     #[case(
         vec!["class Test", "def test", "end"].iter().map(|x| x.to_string()).collect(),
-        vec![LineResult {line: "def test".to_string(), row: 1, column_start: 5, column_end: 8, nodes: vec![Node::Class, Node::Def]}],
+        vec![LineResult {line: "def test".to_string(), row: 1, column_start: 5, column_end: 8, nodes: Nodes::new(vec![Node::Class, Node::Def])}],
         true,
         true,
         true,

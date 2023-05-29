@@ -2,10 +2,35 @@ use clap::ValueEnum;
 use serde::Serialize;
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct NodePath(pub String, pub Vec<Node>);
+pub struct NodePath(pub String, pub Nodes);
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct NodeValue(pub Option<String>, pub Node);
+
+#[derive(Debug, PartialEq, Clone, Serialize)]
+pub struct Nodes(Vec<Node>);
+
+impl Nodes {
+    pub fn new(nodes: Vec<Node>) -> Nodes {
+        Nodes(nodes)
+    }
+
+    pub fn empty() -> Nodes {
+        Nodes(vec![])
+    }
+
+    pub fn append(&self, nodes: Vec<Node>) -> Nodes {
+        Nodes::new(itertools::concat(vec![self.0.clone(), nodes]))
+    }
+
+    pub fn merge(&self, nodes: Nodes) -> Nodes {
+        Nodes::new(itertools::concat(vec![self.0.clone(), nodes.to_nodes()]))
+    }
+
+    pub fn to_nodes(&self) -> Vec<Node> {
+        self.0.clone()
+    }
+}
 
 #[derive(Debug, PartialEq, Clone, ValueEnum, strum_macros::Display, Serialize)]
 pub enum Node {

@@ -37,7 +37,7 @@ mod tests {
 
     use rstest::rstest;
 
-    use crate::node::{Node, NodePath};
+    use crate::node::{Node, NodePath, Nodes};
 
     use super::*;
 
@@ -49,7 +49,7 @@ mod tests {
     #[case("test", true, false, "TEST_STRING", false)]
     #[case("test", false, true, "test_string", true)]
     #[case("test", false, true, "TEST_STRING", false)]
-    fn text_match(
+    fn is_match(
         #[case] query: String,
         #[case] exact_match: bool,
         #[case] case_sensitive: bool,
@@ -59,7 +59,7 @@ mod tests {
         assert_eq!(
             expected,
             TextMatcher::new(query, exact_match, case_sensitive)
-                .is_match(NodePath(text, vec![Node::Begin]))
+                .is_match(NodePath(text, Nodes::new(vec![Node::Begin])))
         )
     }
 }
