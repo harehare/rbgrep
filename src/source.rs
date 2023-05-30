@@ -353,26 +353,37 @@ impl<'a, T: Matcher> Source<'a, T> {
             lib_ruby_parser::Node::Array(node) => node
                 .elements
                 .iter()
-                .flat_map(|statement| {
-                    self.search(parent.append(vec![Node::Array]), statement, input)
+                .zip(self.scan(node.elements.clone()))
+                .flat_map(|(element, nodes)| {
+                    self.search(
+                        parent.append(vec![Node::Array]).merge(nodes),
+                        element,
+                        input,
+                    )
                 })
                 .collect(),
 
             lib_ruby_parser::Node::ArrayPattern(node) => node
                 .elements
                 .iter()
-                .flat_map(|statement| {
-                    self.search(parent.append(vec![Node::ArrayPattern]), statement, input)
+                .zip(self.scan(node.elements.clone()))
+                .flat_map(|(element, nodes)| {
+                    self.search(
+                        parent.append(vec![Node::ArrayPattern]).merge(nodes),
+                        element,
+                        input,
+                    )
                 })
                 .collect(),
 
             lib_ruby_parser::Node::ArrayPatternWithTail(node) => node
                 .elements
                 .iter()
-                .flat_map(|statement| {
+                .zip(self.scan(node.elements.clone()))
+                .flat_map(|(element, nodes)| {
                     self.search(
-                        parent.append(vec![Node::ArrayPatternWithTail]),
-                        statement,
+                        parent.append(vec![Node::ArrayPatternWithTail]).merge(nodes),
+                        element,
                         input,
                     )
                 })
@@ -393,7 +404,14 @@ impl<'a, T: Matcher> Source<'a, T> {
             lib_ruby_parser::Node::Begin(node) => node
                 .statements
                 .iter()
-                .flat_map(|node| self.search(parent.append(vec![Node::Begin]), node, input))
+                .zip(self.scan(node.statements.clone()))
+                .flat_map(|(statement, nodes)| {
+                    self.search(
+                        parent.append(vec![Node::Begin]).merge(nodes),
+                        statement,
+                        input,
+                    )
+                })
                 .collect(),
 
             lib_ruby_parser::Node::Block(node) => itertools::concat(vec![
@@ -402,7 +420,6 @@ impl<'a, T: Matcher> Source<'a, T> {
                     .as_ref()
                     .map(|body| self.search(parent.append(vec![Node::Block]), body, input))
                     .unwrap_or(vec![]),
-                // TODO:
                 node.args
                     .as_ref()
                     .map(|arg| self.search(parent.append(vec![Node::Block]), arg, input))
@@ -443,13 +460,15 @@ impl<'a, T: Matcher> Source<'a, T> {
             lib_ruby_parser::Node::Break(node) => node
                 .args
                 .iter()
-                .flat_map(|statement| {
-                    self.search(parent.append(vec![Node::Break]), statement, input)
+                .zip(self.scan(node.args.clone()))
+                .flat_map(|(arg, nodes)| {
+                    self.search(parent.append(vec![Node::Break]).merge(nodes), arg, input)
                 })
                 .collect(),
 
-            lib_ruby_parser::Node::CSend(node) => self
-                .search_node(
+            lib_ruby_parser::Node::CSend(node) => itertools::concat(vec![
+                self.search(parent.append(vec![Node::CSend]), &node.recv, input),
+                self.search_node(
                     parent.append(vec![Node::CSend]),
                     &node.method_name,
                     node.selector_l.unwrap_or(node.expression_l),
@@ -457,27 +476,16 @@ impl<'a, T: Matcher> Source<'a, T> {
                     0,
                     scan_all,
                 )
-                .map(|r| {
-                    itertools::concat(vec![
-                        self.search(parent.append(vec![Node::CSend]), &node.recv, input),
-                        vec![r],
-                        // TODO:
-                        node.args
-                            .iter()
-                            .flat_map(|arg| {
-                                self.search(parent.append(vec![Node::CSend]), arg, input)
-                            })
-                            .collect(),
-                    ])
-                })
-                .unwrap_or(itertools::concat(vec![
-                    self.search(parent.append(vec![Node::CSend]), &node.recv, input),
-                    // TODO:
-                    node.args
-                        .iter()
-                        .flat_map(|arg| self.search(parent.append(vec![Node::CSend]), arg, input))
-                        .collect(),
-                ])),
+                .map(|r| vec![r])
+                .unwrap_or(vec![]),
+                node.args
+                    .iter()
+                    .zip(self.scan(node.args.clone()))
+                    .flat_map(|(arg, nodes)| {
+                        self.search(parent.append(vec![Node::CSend]).merge(nodes), arg, input)
+                    })
+                    .collect(),
+            ]),
 
             lib_ruby_parser::Node::Case(node) => itertools::concat(vec![
                 node.expr
@@ -490,7 +498,14 @@ impl<'a, T: Matcher> Source<'a, T> {
                     .unwrap_or(vec![]),
                 node.when_bodies
                     .iter()
-                    .flat_map(|arg| self.search(parent.append(vec![Node::Case]), arg, input))
+                    .zip(self.scan(node.when_bodies.clone()))
+                    .flat_map(|(when_body, nodes)| {
+                        self.search(
+                            parent.append(vec![Node::Case]).merge(nodes),
+                            when_body,
+                            input,
+                        )
+                    })
                     .collect(),
             ]),
 
@@ -504,7 +519,14 @@ impl<'a, T: Matcher> Source<'a, T> {
                     .unwrap_or(vec![]),
                 node.in_bodies
                     .iter()
-                    .flat_map(|arg| self.search(parent.append(vec![Node::CaseMatch]), arg, input))
+                    .zip(self.scan(node.in_bodies.clone()))
+                    .flat_map(|(in_body, nodes)| {
+                        self.search(
+                            parent.append(vec![Node::CaseMatch]).merge(nodes),
+                            in_body,
+                            input,
+                        )
+                    })
                     .collect(),
             ]),
 
@@ -676,16 +698,18 @@ impl<'a, T: Matcher> Source<'a, T> {
             lib_ruby_parser::Node::Dstr(node) => node
                 .parts
                 .iter()
-                .flat_map(|statement| {
-                    self.search(parent.append(vec![Node::Dstr]), statement, input)
+                .zip(self.scan(node.parts.clone()))
+                .flat_map(|(part, nodes)| {
+                    self.search(parent.append(vec![Node::Dstr]).merge(nodes), part, input)
                 })
                 .collect(),
 
             lib_ruby_parser::Node::Dsym(node) => node
                 .parts
                 .iter()
-                .flat_map(|statement| {
-                    self.search(parent.append(vec![Node::Dsym]), statement, input)
+                .zip(self.scan(node.parts.clone()))
+                .flat_map(|(part, nodes)| {
+                    self.search(parent.append(vec![Node::Dsym]).merge(nodes), part, input)
                 })
                 .collect(),
 
@@ -814,8 +838,13 @@ impl<'a, T: Matcher> Source<'a, T> {
             lib_ruby_parser::Node::FindPattern(node) => node
                 .elements
                 .iter()
-                .flat_map(|statement| {
-                    self.search(parent.append(vec![Node::FindPattern]), statement, input)
+                .zip(self.scan(node.elements.clone()))
+                .flat_map(|(element, nodes)| {
+                    self.search(
+                        parent.append(vec![Node::FindPattern]).merge(nodes),
+                        element,
+                        input,
+                    )
                 })
                 .collect(),
 
@@ -926,24 +955,31 @@ impl<'a, T: Matcher> Source<'a, T> {
             lib_ruby_parser::Node::Hash(node) => node
                 .pairs
                 .iter()
-                .flat_map(|statement| {
-                    self.search(parent.append(vec![Node::Hash]), statement, input)
+                .zip(self.scan(node.pairs.clone()))
+                .flat_map(|(part, nodes)| {
+                    self.search(parent.append(vec![Node::Hash]).merge(nodes), part, input)
                 })
                 .collect(),
 
             lib_ruby_parser::Node::HashPattern(node) => node
                 .elements
                 .iter()
-                .flat_map(|statement| {
-                    self.search(parent.append(vec![Node::HashPattern]), statement, input)
+                .zip(self.scan(node.elements.clone()))
+                .flat_map(|(element, nodes)| {
+                    self.search(
+                        parent.append(vec![Node::HashPattern]).merge(nodes),
+                        element,
+                        input,
+                    )
                 })
                 .collect(),
 
             lib_ruby_parser::Node::Heredoc(node) => node
                 .parts
                 .iter()
-                .flat_map(|statement| {
-                    self.search(parent.append(vec![Node::Heredoc]), statement, input)
+                .zip(self.scan(node.parts.clone()))
+                .flat_map(|(part, nodes)| {
+                    self.search(parent.append(vec![Node::Heredoc]).merge(nodes), part, input)
                 })
                 .collect(),
 
@@ -1008,8 +1044,9 @@ impl<'a, T: Matcher> Source<'a, T> {
                 self.search(parent.append(vec![Node::Index]), &node.recv, input),
                 node.indexes
                     .iter()
-                    .flat_map(|statement| {
-                        self.search(parent.append(vec![Node::Index]), statement, input)
+                    .zip(self.scan(node.indexes.clone()))
+                    .flat_map(|(index, nodes)| {
+                        self.search(parent.append(vec![Node::Index]).merge(nodes), index, input)
                     })
                     .collect(),
             ]),
@@ -1022,8 +1059,13 @@ impl<'a, T: Matcher> Source<'a, T> {
                 self.search(parent.append(vec![Node::IndexAsgn]), &node.recv, input),
                 node.indexes
                     .iter()
-                    .flat_map(|statement| {
-                        self.search(parent.append(vec![Node::IndexAsgn]), statement, input)
+                    .zip(self.scan(node.indexes.clone()))
+                    .flat_map(|(index, nodes)| {
+                        self.search(
+                            parent.append(vec![Node::IndexAsgn]).merge(nodes),
+                            index,
+                            input,
+                        )
                     })
                     .collect(),
             ]),
@@ -1092,8 +1134,13 @@ impl<'a, T: Matcher> Source<'a, T> {
             lib_ruby_parser::Node::KwBegin(node) => node
                 .statements
                 .iter()
-                .flat_map(|statement| {
-                    self.search(parent.append(vec![Node::KwBegin]), statement, input)
+                .zip(self.scan(node.statements.clone()))
+                .flat_map(|(statement, nodes)| {
+                    self.search(
+                        parent.append(vec![Node::KwBegin]).merge(nodes),
+                        statement,
+                        input,
+                    )
                 })
                 .collect(),
 
@@ -1121,8 +1168,9 @@ impl<'a, T: Matcher> Source<'a, T> {
             lib_ruby_parser::Node::Kwargs(node) => node
                 .pairs
                 .iter()
-                .flat_map(|statement| {
-                    self.search(parent.append(vec![Node::Kwargs]), statement, input)
+                .zip(self.scan(node.pairs.clone()))
+                .flat_map(|(pair, nodes)| {
+                    self.search(parent.append(vec![Node::Kwargs]).merge(nodes), pair, input)
                 })
                 .collect(),
 
@@ -1435,10 +1483,12 @@ impl<'a, T: Matcher> Source<'a, T> {
                         .unwrap_or(vec![])
                 })
                 .unwrap_or(vec![]),
-                // TODO:
                 node.args
                     .iter()
-                    .flat_map(|arg| self.search(parent.append(vec![Node::Next]), arg, input))
+                    .zip(self.scan(node.args.clone()))
+                    .flat_map(|(arg, nodes)| {
+                        self.search(parent.append(vec![Node::Next]).merge(nodes), arg, input)
+                    })
                     .collect::<Vec<LineResult>>(),
             ]),
 
@@ -1618,7 +1668,10 @@ impl<'a, T: Matcher> Source<'a, T> {
             lib_ruby_parser::Node::Procarg0(node) => node
                 .args
                 .iter()
-                .flat_map(|arg| self.search(parent.append(vec![Node::Procarg0]), arg, input))
+                .zip(self.scan(node.args.clone()))
+                .flat_map(|(arg, nodes)| {
+                    self.search(parent.append(vec![Node::Procarg0]).merge(nodes), arg, input)
+                })
                 .collect(),
 
             lib_ruby_parser::Node::Rational(node) => self
@@ -1690,8 +1743,13 @@ impl<'a, T: Matcher> Source<'a, T> {
                         self.search(parent.append(vec![Node::Regexp]), options, input),
                         node.parts
                             .iter()
-                            .flat_map(|arg| {
-                                self.search(parent.append(vec![Node::Regexp]), arg, input)
+                            .zip(self.scan(node.parts.clone()))
+                            .flat_map(|(part, nodes)| {
+                                self.search(
+                                    parent.append(vec![Node::Regexp]).merge(nodes),
+                                    part,
+                                    input,
+                                )
                             })
                             .collect(),
                     ])
@@ -1699,7 +1757,10 @@ impl<'a, T: Matcher> Source<'a, T> {
                 .unwrap_or(
                     node.parts
                         .iter()
-                        .flat_map(|arg| self.search(parent.append(vec![Node::Regexp]), arg, input))
+                        .zip(self.scan(node.parts.clone()))
+                        .flat_map(|(part, nodes)| {
+                            self.search(parent.append(vec![Node::Regexp]).merge(nodes), part, input)
+                        })
                         .collect(),
                 ),
 
@@ -1714,8 +1775,13 @@ impl<'a, T: Matcher> Source<'a, T> {
                     .unwrap_or(vec![]),
                 node.rescue_bodies
                     .iter()
-                    .flat_map(|statement| {
-                        self.search(parent.append(vec![Node::Rescue]), statement, input)
+                    .zip(self.scan(node.rescue_bodies.clone()))
+                    .flat_map(|(rescue_body, nodes)| {
+                        self.search(
+                            parent.append(vec![Node::Rescue]).merge(nodes),
+                            rescue_body,
+                            input,
+                        )
                     })
                     .collect(),
             ]),
@@ -1913,10 +1979,12 @@ impl<'a, T: Matcher> Source<'a, T> {
                         .unwrap_or(vec![])
                 })
                 .unwrap_or(vec![]),
-                // TODO:
                 node.args
                     .iter()
-                    .flat_map(|arg| self.search(parent.append(vec![Node::Super]), arg, input))
+                    .zip(self.scan(node.args.clone()))
+                    .flat_map(|(arg, nodes)| {
+                        self.search(parent.append(vec![Node::Super]).merge(nodes), arg, input)
+                    })
                     .collect(),
             ]),
 
@@ -1957,8 +2025,9 @@ impl<'a, T: Matcher> Source<'a, T> {
             lib_ruby_parser::Node::Undef(node) => node
                 .names
                 .iter()
-                .flat_map(|statement| {
-                    self.search(parent.append(vec![Node::Undef]), statement, input)
+                .zip(self.scan(node.names.clone()))
+                .flat_map(|(name, nodes)| {
+                    self.search(parent.append(vec![Node::Undef]).merge(nodes), name, input)
                 })
                 .collect(),
 
@@ -1983,14 +2052,24 @@ impl<'a, T: Matcher> Source<'a, T> {
                 Some(body) => itertools::concat(vec![
                     node.patterns
                         .iter()
-                        .flat_map(|arg| self.search(parent.append(vec![Node::When]), arg, input))
+                        .zip(self.scan(node.patterns.clone()))
+                        .flat_map(|(pattern, nodes)| {
+                            self.search(
+                                parent.append(vec![Node::When]).merge(nodes),
+                                pattern,
+                                input,
+                            )
+                        })
                         .collect(),
                     self.search(parent.append(vec![Node::When]), body, input),
                 ]),
                 _ => node
                     .patterns
                     .iter()
-                    .flat_map(|arg| self.search(parent.append(vec![Node::When]), arg, input))
+                    .zip(self.scan(node.patterns.clone()))
+                    .flat_map(|(pattern, nodes)| {
+                        self.search(parent.append(vec![Node::When]).merge(nodes), pattern, input)
+                    })
                     .collect(),
             },
 
@@ -2013,7 +2092,14 @@ impl<'a, T: Matcher> Source<'a, T> {
             lib_ruby_parser::Node::XHeredoc(node) => node
                 .parts
                 .iter()
-                .flat_map(|arg| self.search(parent.append(vec![Node::XHeredoc]), arg, input))
+                .zip(self.scan(node.parts.clone()))
+                .flat_map(|(part, nodes)| {
+                    self.search(
+                        parent.append(vec![Node::XHeredoc]).merge(nodes),
+                        part,
+                        input,
+                    )
+                })
                 .collect(),
 
             lib_ruby_parser::Node::Xstr(node) => itertools::concat(
@@ -2022,7 +2108,6 @@ impl<'a, T: Matcher> Source<'a, T> {
                     .map(|arg| self.search(parent.append(vec![Node::Xstr]), arg, input)),
             ),
 
-            // TODO:
             lib_ruby_parser::Node::Yield(node) => itertools::concat(
                 node.args
                     .iter()
@@ -2131,7 +2216,7 @@ mod tests {
     #[case("rescue_test", None, LineResult {line: "begin; test; rescue StandardError => rescue_test; true_test; else; else_test; end".to_string(), row: 0, column_start: 37, column_end: 48, nodes: Nodes::new(vec![Node::KwBegin, Node::Rescue, Node::RescueBody, Node::Lvasgn])})]
     #[case("bar", None, LineResult {line: "foo(**bar)".to_string(), row: 0, column_start: 6, column_end: 9, nodes: Nodes::new(vec![Node::Send, Node::Kwargs, Node::Kwsplat, Node::Send])})]
     #[case("regex_test", None, LineResult {line: "/regex_test/".to_string(), row: 0, column_start: 1, column_end: 11, nodes: Nodes::new(vec![Node::Regexp, Node::Str])})]
-    #[case("pin_test", None, LineResult {line: "pin_test = 1; case foo; in ^pin_test; end".to_string(), row: 0, column_start: 28, column_end: 36, nodes: Nodes::new(vec![Node::Begin, Node::CaseMatch, Node::InPattern, Node::Pin, Node::Lvar])})]
+    #[case("pin_test", None, LineResult {line: "pin_test = 1; case foo; in ^pin_test; end".to_string(), row: 0, column_start: 28, column_end: 36, nodes: Nodes::new(vec![Node::Begin, Node::Lvasgn, Node::CaseMatch, Node::InPattern, Node::Pin, Node::Lvar])})]
     #[case("global_test", None, LineResult {line: "$global_test = 1000".to_string(), row: 0, column_start: 0, column_end: 12, nodes: Nodes::new(vec![Node::Gvasgn])})]
     // const
     #[case("CONST", None, LineResult {line: "CONST = 1".to_string(), row: 0, column_start: 0, column_end: 5, nodes: Nodes::new(vec![Node::Casgn])})]
@@ -2283,7 +2368,7 @@ mod tests {
     #[case("bar", None, LineResult {line: "foo in foo | bar".to_string(), row: 0, column_start: 13, column_end: 16, nodes: Nodes::new(vec![Node::MatchPatternP, Node::MatchAlt, Node::MatchVar])})]
     #[case("nil", None, LineResult {line: "foo() in **nil".to_string(), row: 0, column_start: 9, column_end: 14, nodes: Nodes::new(vec![Node::MatchPatternP, Node::HashPattern, Node::MatchNilPattern])})]
     // heredoc
-    #[case("xhere_test", Some("<<-`HERE`\n  a   #{xhere_test} \nHERE".to_string()), LineResult {line: "  a   #{xhere_test} ".to_string(), row: 1, column_start: 8, column_end: 18, nodes: Nodes::new(vec![Node::XHeredoc, Node::Begin, Node::Send])})]
+    #[case("xhere_test", Some("<<-`HERE`\n  a   #{xhere_test} \nHERE".to_string()), LineResult {line: "  a   #{xhere_test} ".to_string(), row: 1, column_start: 8, column_end: 18, nodes: Nodes::new(vec![Node::XHeredoc, Node::Str, Node::Begin, Node::Send])})]
     fn grep_source(
         #[case] query: String,
         #[case] text: Option<String>,
