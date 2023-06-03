@@ -19,16 +19,36 @@ impl Nodes {
         Nodes(vec![])
     }
 
-    pub fn append(&self, nodes: Vec<Node>) -> Nodes {
-        Nodes::new(itertools::concat(vec![self.0.clone(), nodes]))
+    pub fn append(&self, node: Node) -> Nodes {
+        Nodes::new(itertools::concat(vec![self.0.clone(), vec![node]]))
     }
 
     pub fn merge(&self, nodes: Nodes) -> Nodes {
-        Nodes::new(itertools::concat(vec![self.0.clone(), nodes.to_nodes()]))
+        Nodes::new(itertools::concat(vec![self.0.clone(), nodes.to_vec()]))
     }
 
-    pub fn to_nodes(&self) -> Vec<Node> {
+    pub fn to_vec(&self) -> Vec<Node> {
         self.0.clone()
+    }
+
+    pub fn contains(&self, nodes: &Nodes) -> bool {
+        let (base, part) = if self.0.len() > nodes.0.len() {
+            (&self.0, &nodes.0)
+        } else {
+            (&nodes.0, &self.0)
+        };
+
+        for w in base.windows(part.len()) {
+            if w == part {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 }
 
