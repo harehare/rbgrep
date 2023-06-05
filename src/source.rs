@@ -13,6 +13,7 @@ pub struct GrepOptions {
     pub start_nodes: Option<Vec<Node>>,
     pub end_nodes: Option<Vec<Node>>,
     pub pattern: Option<String>,
+    pub search_only_pattern: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -117,14 +118,30 @@ impl LineResult {
     }
 
     pub fn to_result_string(&self, only_matching: bool) -> String {
-        let start_text = &self.line[..self.column_start];
-        let match_text = &self.line[self.column_start..self.column_end];
+        let start_index = self
+            .line
+            .char_indices()
+            .nth(self.column_start)
+            .map(|(i, _)| i)
+            .unwrap_or(self.column_start);
+        let end_index = self
+            .line
+            .char_indices()
+            .nth(self.column_end)
+            .map(|(i, _)| i)
+            .unwrap_or(self.column_end);
+
+        let start_text = &self.line[..start_index];
+        let match_text = &self
+            .line
+            .get(start_index..end_index)
+            .unwrap_or(&self.line[start_index..]);
         let end = if match_text.starts_with('"') || match_text.starts_with('\'') {
-            self.column_end + 2
+            end_index + 2
         } else {
-            self.column_end
+            end_index
         };
-        let match_text = &self.line[self.column_start..end];
+        let match_text = &self.line[start_index..end];
         let end_text = &self.line[end..];
 
         if only_matching {
@@ -226,7 +243,12 @@ impl<'a, T: Matcher> Source<'a, T> {
             let start_nodes = self.options.start_nodes.clone().unwrap_or(vec![]);
             let end_nodes = self.options.end_nodes.clone().unwrap_or(vec![]);
             let results: Vec<LineResult> = self
-                .search(Nodes::empty(), root, &self.input, false)
+                .search(
+                    Nodes::empty(),
+                    root,
+                    &self.input,
+                    self.options.search_only_pattern,
+                )
                 .into_iter()
                 .filter(|r| {
                     if !start_nodes.is_empty() && !r.nodes.to_vec().starts_with(&start_nodes) {
@@ -240,8 +262,6 @@ impl<'a, T: Matcher> Source<'a, T> {
                     if pattern.is_empty() {
                         return true;
                     }
-                    println!("nodes = {:?}", &r.nodes);
-                    println!("pattern = {:?}", &pattern);
 
                     r.nodes.contains(&pattern)
                 })
@@ -2219,7 +2239,9 @@ impl<'a, T: Matcher> Source<'a, T> {
             lib_ruby_parser::Node::Str(node) => self
                 .search_node(
                     parent.append(Node::Str),
-                    &node.value.to_string().unwrap_or("".to_string()),
+                    String::from_utf8(node.value.raw.clone())
+                        .unwrap_or("".to_string())
+                        .as_str(),
                     node.expression_l,
                     input,
                     0,
@@ -2727,6 +2749,7 @@ mod tests {
                 start_nodes: None,
                 end_nodes: None,
                 pattern: None,
+                search_only_pattern: false,
             },
         );
 
@@ -2815,6 +2838,7 @@ mod tests {
                 start_nodes,
                 end_nodes,
                 pattern,
+                search_only_pattern: false,
             },
         );
 

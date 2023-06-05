@@ -20,7 +20,7 @@ use tap::Tap;
 #[derive(Parser)]
 #[command(name = "rbgrep")]
 #[command(author = "Takahiro Sato. <harehare1110@gmail.com>")]
-#[command(version = "0.1.4")]
+#[command(version = "0.1.5")]
 #[command(
     about = "rbgrep is a line-oriented search cli tool that recursively searches ruby files in the current directory for a regex patterns.",
     long_about = None
@@ -61,6 +61,10 @@ pub struct Cli {
     /// Searches for ASTs matching the specified pattern of ASTs.
     #[arg(long)]
     pattern: Option<String>,
+
+    /// Search only by pattern.
+    #[arg(long)]
+    only_pattern: bool,
 
     /// Don't respect .gitignore files.
     #[arg(long)]
@@ -149,6 +153,7 @@ impl Cli {
             Some(p) => p.clone(),
             None => vec![".".to_string()],
         };
+        let pattern = self.only_pattern.then_some(self.query.clone());
 
         if self.regexp {
             match RegexMatcher::new(self.query.as_str()) {
@@ -161,7 +166,8 @@ impl Cli {
                                 GrepOptions {
                                     start_nodes: self.start_nodes.clone(),
                                     end_nodes: self.end_nodes.clone(),
-                                    pattern: self.pattern.clone(),
+                                    pattern,
+                                    search_only_pattern: self.only_pattern,
                                 },
                             );
 
@@ -188,7 +194,8 @@ impl Cli {
                                                     GrepOptions {
                                                         start_nodes: self.start_nodes.clone(),
                                                         end_nodes: self.end_nodes.clone(),
-                                                        pattern: self.pattern.clone(),
+                                                        pattern: pattern.clone(),
+                                                        search_only_pattern: self.only_pattern,
                                                     },
                                                 );
 
@@ -221,7 +228,8 @@ impl Cli {
                         GrepOptions {
                             start_nodes: self.start_nodes.clone(),
                             end_nodes: self.end_nodes.clone(),
-                            pattern: self.pattern.clone(),
+                            pattern: pattern.clone(),
+                            search_only_pattern: self.only_pattern,
                         },
                     );
 
@@ -248,7 +256,8 @@ impl Cli {
                                             GrepOptions {
                                                 start_nodes: self.start_nodes.clone(),
                                                 end_nodes: self.end_nodes.clone(),
-                                                pattern: self.pattern.clone(),
+                                                pattern: pattern.clone(),
+                                                search_only_pattern: self.only_pattern,
                                             },
                                         );
 
@@ -433,6 +442,7 @@ mod tests {
             stdin: None,
             json: false,
             pattern: None,
+            only_pattern: false,
         };
 
         assert_eq!(cli.run().is_ok(), expected);
@@ -488,6 +498,7 @@ mod tests {
             stdin: is_stdin.then_some(MaybeStdIn::from_str(text.as_str()).unwrap()),
             json: false,
             pattern: None,
+            only_pattern: false,
         };
 
         assert_eq!(cli.run().is_ok(), expected);

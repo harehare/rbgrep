@@ -32,13 +32,13 @@ impl Nodes {
     }
 
     pub fn contains(&self, nodes: &Nodes) -> bool {
-        let (base, part) = if self.0.len() > nodes.0.len() {
+        let (target, part) = if self.0.len() > nodes.0.len() {
             (&self.0, &nodes.0)
         } else {
             (&nodes.0, &self.0)
         };
 
-        for w in base.windows(part.len()) {
+        for w in target.windows(part.len()) {
             if w == part {
                 return true;
             }
