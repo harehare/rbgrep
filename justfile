@@ -1,7 +1,7 @@
 default: build
 
 run *args:
-  cargo run -- "{{args}}"
+  cargo run -- {{args}}
 
 build:
   cargo build --release

@@ -38,6 +38,10 @@ impl Nodes {
             (&nodes.0, &self.0)
         };
 
+        if part.is_empty() {
+            return true;
+        }
+
         for w in target.windows(part.len()) {
             if w == part {
                 return true;
@@ -45,10 +49,6 @@ impl Nodes {
         }
 
         false
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
     }
 }
 

@@ -46,25 +46,21 @@ pub struct Cli {
     #[arg(short = 'e', long)]
     regexp: bool,
 
-    /// Start nodes.
-    #[arg(short = 'S', long, value_enum)]
-    start_nodes: Option<Vec<Node>>,
-
     /// If specified, it excludes files or directories matching the given filename pattern from the search.
     #[arg(long)]
     exclude: Option<String>,
 
-    /// End nodes.
+    /// AST start pattern to match.
+    #[arg(short = 'S', long, value_enum)]
+    start_pattern: Option<Vec<Node>>,
+
+    /// AST end pattern to match.
     #[arg(short = 'E', long, value_enum)]
-    end_nodes: Option<Vec<Node>>,
+    end_pattern: Option<Vec<Node>>,
 
-    /// Searches for ASTs matching the specified pattern of ASTs.
-    #[arg(long)]
-    pattern: Option<String>,
-
-    /// Search only by pattern.
-    #[arg(long)]
-    only_pattern: bool,
+    /// AST pattern to match.
+    #[arg(short = 'P', long, value_enum)]
+    pattern: Option<Vec<Node>>,
 
     /// Don't respect .gitignore files.
     #[arg(long)]
@@ -153,7 +149,6 @@ impl Cli {
             Some(p) => p.clone(),
             None => vec![".".to_string()],
         };
-        let pattern = self.only_pattern.then_some(self.query.clone());
 
         if self.regexp {
             match RegexMatcher::new(self.query.as_str()) {
@@ -164,10 +159,9 @@ impl Cli {
                                 stdin.as_str(),
                                 &m,
                                 GrepOptions {
-                                    start_nodes: self.start_nodes.clone(),
-                                    end_nodes: self.end_nodes.clone(),
-                                    pattern,
-                                    search_only_pattern: self.only_pattern,
+                                    start_pattern: self.start_pattern.clone(),
+                                    end_pattern: self.end_pattern.clone(),
+                                    pattern: self.pattern.clone(),
                                 },
                             );
 
@@ -192,10 +186,9 @@ impl Cli {
                                                     content.as_str(),
                                                     &m,
                                                     GrepOptions {
-                                                        start_nodes: self.start_nodes.clone(),
-                                                        end_nodes: self.end_nodes.clone(),
-                                                        pattern: pattern.clone(),
-                                                        search_only_pattern: self.only_pattern,
+                                                        start_pattern: self.start_pattern.clone(),
+                                                        end_pattern: self.end_pattern.clone(),
+                                                        pattern: self.pattern.clone(),
                                                     },
                                                 );
 
@@ -226,10 +219,9 @@ impl Cli {
                         stdin.as_str(),
                         &m,
                         GrepOptions {
-                            start_nodes: self.start_nodes.clone(),
-                            end_nodes: self.end_nodes.clone(),
-                            pattern: pattern.clone(),
-                            search_only_pattern: self.only_pattern,
+                            start_pattern: self.start_pattern.clone(),
+                            end_pattern: self.end_pattern.clone(),
+                            pattern: self.pattern.clone(),
                         },
                     );
 
@@ -254,10 +246,9 @@ impl Cli {
                                             content.as_str(),
                                             &m,
                                             GrepOptions {
-                                                start_nodes: self.start_nodes.clone(),
-                                                end_nodes: self.end_nodes.clone(),
-                                                pattern: pattern.clone(),
-                                                search_only_pattern: self.only_pattern,
+                                                start_pattern: self.start_pattern.clone(),
+                                                end_pattern: self.end_pattern.clone(),
+                                                pattern: self.pattern.clone(),
                                             },
                                         );
 
@@ -420,8 +411,8 @@ mod tests {
             exact_match: false,
             hidden: true,
             regexp,
-            start_nodes: None,
-            end_nodes: None,
+            start_pattern: None,
+            end_pattern: None,
             only_matching: false,
             no_git_ignore: false,
             no_file_name: false,
@@ -442,7 +433,6 @@ mod tests {
             stdin: None,
             json: false,
             pattern: None,
-            only_pattern: false,
         };
 
         assert_eq!(cli.run().is_ok(), expected);
@@ -476,8 +466,8 @@ mod tests {
             exact_match: false,
             hidden: true,
             regexp: false,
-            start_nodes: None,
-            end_nodes: None,
+            start_pattern: None,
+            end_pattern: None,
             only_matching: false,
             no_git_ignore: false,
             no_file_name: false,
@@ -498,7 +488,6 @@ mod tests {
             stdin: is_stdin.then_some(MaybeStdIn::from_str(text.as_str()).unwrap()),
             json: false,
             pattern: None,
-            only_pattern: false,
         };
 
         assert_eq!(cli.run().is_ok(), expected);
