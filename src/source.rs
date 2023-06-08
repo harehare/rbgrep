@@ -1,145 +1,23 @@
-use crate::matcher::Matcher;
-use clap::ValueEnum;
+use crate::{
+    matcher::Matcher,
+    node::{Node, Nodes},
+};
 use colored::*;
 use itertools::Itertools;
-use lib_ruby_parser::{source::DecodedInput, Diagnostic, Loc, Parser, ParserOptions, ParserResult};
+use lib_ruby_parser::{
+    source::{DecodedInput, Decoder, DecoderResult, InputError},
+    Diagnostic, Loc, Parser, ParserOptions, ParserResult,
+};
 use serde::Serialize;
 use std::{fmt, vec};
 
-#[derive(Debug, PartialEq, Clone, ValueEnum, strum_macros::Display, Serialize)]
-pub enum Node {
-    Alias,
-    And,
-    AndAsgn,
-    Arg,
-    Args,
-    Array,
-    ArrayPattern,
-    ArrayPatternWithTail,
-    BackRef,
-    Begin,
-    Block,
-    BlockPass,
-    Blockarg,
-    Break,
-    CSend,
-    Case,
-    CaseMatch,
-    Casgn,
-    Cbase,
-    Class,
-    Complex,
-    Const,
-    ConstPattern,
-    Cvar,
-    Cvasgn,
-    Def,
-    Defined,
-    Defs,
-    Dstr,
-    Dsym,
-    EFlipFlop,
-    EmptyElse,
-    Encoding,
-    Ensure,
-    Erange,
-    False,
-    File,
-    FindPattern,
-    Float,
-    For,
-    ForwardArg,
-    ForwardedArgs,
-    Gvar,
-    Gvasgn,
-    Hash,
-    HashPattern,
-    Heredoc,
-    IFlipFlop,
-    If,
-    IfGuard,
-    IfMod,
-    IfTernary,
-    InPattern,
-    Index,
-    IndexAsgn,
-    Int,
-    Irange,
-    Ivar,
-    Ivasgn,
-    KwBegin,
-    Kwarg,
-    Kwargs,
-    Kwnilarg,
-    Kwoptarg,
-    Kwrestarg,
-    Kwsplat,
-    Lambda,
-    Line,
-    Lvar,
-    Lvasgn,
-    Masgn,
-    MatchAlt,
-    MatchAs,
-    MatchCurrentLine,
-    MatchNilPattern,
-    MatchPattern,
-    MatchPatternP,
-    MatchRest,
-    MatchVar,
-    MatchWithLvasgn,
-    Mlhs,
-    Module,
-    Next,
-    Nil,
-    NthRef,
-    Numblock,
-    OpAsgn,
-    Optarg,
-    Or,
-    OrAsgn,
-    Pair,
-    Pin,
-    Postexe,
-    Preexe,
-    Procarg0,
-    Rational,
-    Redo,
-    RegOpt,
-    Regexp,
-    Rescue,
-    RescueBody,
-    Restarg,
-    Retry,
-    Return,
-    SClass,
-    Self_,
-    Send,
-    Shadowarg,
-    Splat,
-    Str,
-    Super,
-    Sym,
-    True,
-    Undef,
-    UnlessGuard,
-    Until,
-    UntilPost,
-    When,
-    While,
-    WhilePost,
-    XHeredoc,
-    Xstr,
-    Yield,
-    ZSuper,
-}
-
 pub struct GrepOptions {
-    pub start_nodes: Option<Vec<Node>>,
-    pub end_nodes: Option<Vec<Node>>,
+    pub start_pattern: Option<Vec<Node>>,
+    pub end_pattern: Option<Vec<Node>>,
+    pub pattern: Option<Vec<Node>>,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub enum GrepResult {
     FileResult(FileResult),
     FileErrorResult(FileErrorResult),
@@ -203,12 +81,12 @@ pub struct FileResult {
     pub results: Vec<LineResult>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct LineResult {
     pub line: String,
     pub row: usize,
-    pub nodes: Vec<Node>,
+    pub nodes: Nodes,
     pub column_start: usize,
     pub column_end: usize,
 }
@@ -217,7 +95,7 @@ impl LineResult {
     pub fn new(
         row: usize,
         line: String,
-        nodes: Vec<Node>,
+        nodes: Nodes,
         column_start: usize,
         column_end: usize,
     ) -> Self {
@@ -232,6 +110,7 @@ impl LineResult {
 
     pub fn to_nodes_string(&self) -> String {
         self.nodes
+            .to_vec()
             .clone()
             .iter()
             .map(|node| node.to_string())
@@ -240,14 +119,30 @@ impl LineResult {
     }
 
     pub fn to_result_string(&self, only_matching: bool) -> String {
-        let start_text = &self.line[..self.column_start];
-        let match_text = &self.line[self.column_start..self.column_end];
+        let start_index = self
+            .line
+            .char_indices()
+            .nth(self.column_start)
+            .map(|(i, _)| i)
+            .unwrap_or(self.column_start);
+        let end_index = self
+            .line
+            .char_indices()
+            .nth(self.column_end)
+            .map(|(i, _)| i)
+            .unwrap_or(self.column_end);
+
+        let start_text = &self.line[..start_index];
+        let match_text = &self
+            .line
+            .get(start_index..end_index)
+            .unwrap_or(&self.line[start_index..]);
         let end = if match_text.starts_with('"') || match_text.starts_with('\'') {
-            self.column_end + 2
+            end_index + 2
         } else {
-            self.column_end
+            end_index
         };
-        let match_text = &self.line[self.column_start..end];
+        let match_text = &self.line[start_index..end];
         let end_text = &self.line[end..];
 
         if only_matching {
@@ -267,15 +162,27 @@ pub struct Source<'a, T: Matcher> {
     matcher: &'a T,
 }
 
+fn decode(encoding: String, input: Vec<u8>) -> DecoderResult {
+    if "US-ASCII" == encoding.to_uppercase() {
+        return DecoderResult::Ok(input);
+    }
+    DecoderResult::Err(InputError::DecodingError(
+        "only us-ascii is supported".to_string(),
+    ))
+}
+
 impl<'a, T: Matcher> Source<'a, T> {
     pub fn new(code: &str, matcher: &'a T, options: GrepOptions) -> Source<'a, T> {
         let parser = Parser::new(
             code.as_bytes().to_vec(),
             ParserOptions {
                 buffer_name: "(eval)".to_string(),
+                decoder: Some(Decoder::new(Box::new(decode))),
+
                 ..Default::default()
             },
         );
+
         let ParserResult {
             ast,
             input,
@@ -293,27 +200,11 @@ impl<'a, T: Matcher> Source<'a, T> {
         }
     }
 
-    fn error_messages(&self) -> Vec<((usize, usize), bool, String)> {
-        self.diagnostics
-            .iter()
-            .map(|d| {
-                let loc = self.input.line_col_for_pos(d.loc.begin).unwrap_or((0, 0));
-
-                if d.is_warning() {
-                    (loc, true, format!("{}", d.render_message().yellow()))
-                } else {
-                    (loc, false, format!("{}", d.render_message().red()))
-                }
-            })
-            .collect::<Vec<((usize, usize), bool, String)>>()
-    }
-
     pub fn errors(&self, path: String, is_print_warning: bool) -> Option<GrepResult> {
         if self.diagnostics.is_empty() {
             None
         } else {
-            let errors = self
-                .error_messages()
+            let errors = Self::error_messages(&self.diagnostics, &self.input)
                 .iter()
                 .filter_map(|(loc, is_warning, message)| {
                     if !is_print_warning && *is_warning {
@@ -341,10 +232,27 @@ impl<'a, T: Matcher> Source<'a, T> {
 
     pub fn grep(&self, filename: &str) -> Option<GrepResult> {
         self.root.as_ref().and_then(|root| {
+            let pattern = Nodes::new(self.options.pattern.clone().unwrap_or(vec![]));
+            let start_pattern = self.options.start_pattern.clone().unwrap_or(vec![]);
+            let end_pattern = self.options.end_pattern.clone().unwrap_or(vec![]);
             let results: Vec<LineResult> = self
-                .search(vec![], root, &self.input)
+                .search(Nodes::empty(), root, &self.input)
                 .into_iter()
-                .filter(|r| self.start_nodes(&r.nodes) && self.end_nodes(&r.nodes))
+                .filter(|r| {
+                    if !start_pattern.is_empty() && !r.nodes.to_vec().starts_with(&start_pattern) {
+                        return false;
+                    }
+
+                    if !end_pattern.is_empty() && !r.nodes.to_vec().ends_with(&end_pattern) {
+                        return false;
+                    }
+
+                    if pattern.to_vec().is_empty() {
+                        return true;
+                    }
+
+                    r.nodes.contains(&pattern)
+                })
                 .collect();
 
             (!results.is_empty())
@@ -359,71 +267,31 @@ impl<'a, T: Matcher> Source<'a, T> {
         })
     }
 
-    fn start_nodes(&self, nodes: &[Node]) -> bool {
-        self.options
-            .start_nodes
-            .as_ref()
-            .map(|s| nodes.starts_with(s))
-            .unwrap_or(true)
-    }
-
-    fn end_nodes(&self, nodes: &[Node]) -> bool {
-        self.options
-            .end_nodes
-            .as_ref()
-            .map(|e| nodes.ends_with(e))
-            .unwrap_or(true)
-    }
-
     fn search(
         &self,
-        parent: Vec<Node>,
+        parent: Nodes,
         node: &lib_ruby_parser::Node,
         input: &DecodedInput,
     ) -> Vec<LineResult> {
         match node {
             lib_ruby_parser::Node::Alias(node) => itertools::concat(vec![
-                self.search(
-                    itertools::concat(vec![parent.clone(), vec![Node::Alias]]),
-                    &node.to,
-                    input,
-                ),
-                self.search(
-                    itertools::concat(vec![parent, vec![Node::Alias]]),
-                    &node.from,
-                    input,
-                ),
+                self.search(parent.append(Node::Alias), &node.to, input),
+                self.search(parent.append(Node::Alias), &node.from, input),
             ]),
 
             lib_ruby_parser::Node::And(node) => itertools::concat(vec![
-                self.search(
-                    itertools::concat(vec![parent.clone(), vec![Node::And]]),
-                    &node.lhs,
-                    input,
-                ),
-                self.search(
-                    itertools::concat(vec![parent, vec![Node::And]]),
-                    &node.rhs,
-                    input,
-                ),
+                self.search(parent.append(Node::And), &node.lhs, input),
+                self.search(parent.append(Node::And), &node.rhs, input),
             ]),
 
             lib_ruby_parser::Node::AndAsgn(node) => itertools::concat(vec![
-                self.search(
-                    itertools::concat(vec![parent.clone(), vec![Node::AndAsgn]]),
-                    &node.recv,
-                    input,
-                ),
-                self.search(
-                    itertools::concat(vec![parent, vec![Node::AndAsgn]]),
-                    &node.value,
-                    input,
-                ),
+                self.search(parent.append(Node::AndAsgn), &node.recv, input),
+                self.search(parent.append(Node::AndAsgn), &node.value, input),
             ]),
 
             lib_ruby_parser::Node::Arg(node) => self
                 .matcher
-                .is_match(&node.name)
+                .is_match(node.name.clone())
                 .then(|| {
                     input
                         .line_col_for_pos(node.expression_l.begin)
@@ -431,7 +299,7 @@ impl<'a, T: Matcher> Source<'a, T> {
                             LineResult::new(
                                 pos.0,
                                 self.lines[pos.0].clone(),
-                                itertools::concat(vec![parent.clone(), vec![Node::Arg]]),
+                                parent.append(Node::Arg),
                                 pos.1,
                                 pos.1 + node.name.len(),
                             )
@@ -444,54 +312,34 @@ impl<'a, T: Matcher> Source<'a, T> {
             lib_ruby_parser::Node::Args(node) => node
                 .args
                 .iter()
-                .flat_map(|arg| {
-                    self.search(
-                        itertools::concat(vec![parent.clone(), vec![Node::Arg]]),
-                        arg,
-                        input,
-                    )
+                .flat_map(|node| {
+                    self.search(parent.merge(Nodes::new(vec![Node::Args])), node, input)
                 })
                 .collect(),
 
             lib_ruby_parser::Node::Array(node) => node
                 .elements
                 .iter()
-                .flat_map(|statement| {
-                    self.search(
-                        itertools::concat(vec![parent.clone(), vec![Node::Array]]),
-                        statement,
-                        input,
-                    )
-                })
+                .flat_map(|element| self.search(parent.append(Node::Array), element, input))
                 .collect(),
 
             lib_ruby_parser::Node::ArrayPattern(node) => node
                 .elements
                 .iter()
-                .flat_map(|statement| {
-                    self.search(
-                        itertools::concat(vec![parent.clone(), vec![Node::ArrayPattern]]),
-                        statement,
-                        input,
-                    )
-                })
+                .flat_map(|element| self.search(parent.append(Node::ArrayPattern), element, input))
                 .collect(),
 
             lib_ruby_parser::Node::ArrayPatternWithTail(node) => node
                 .elements
                 .iter()
-                .flat_map(|statement| {
-                    self.search(
-                        itertools::concat(vec![parent.clone(), vec![Node::ArrayPatternWithTail]]),
-                        statement,
-                        input,
-                    )
+                .flat_map(|element| {
+                    self.search(parent.append(Node::ArrayPatternWithTail), element, input)
                 })
                 .collect(),
 
             lib_ruby_parser::Node::BackRef(node) => self
                 .search_node(
-                    itertools::concat(vec![parent, vec![Node::BackRef]]),
+                    parent.append(Node::BackRef),
                     &node.name,
                     node.expression_l,
                     input,
@@ -503,58 +351,30 @@ impl<'a, T: Matcher> Source<'a, T> {
             lib_ruby_parser::Node::Begin(node) => node
                 .statements
                 .iter()
-                .flat_map(|node| {
-                    self.search(
-                        itertools::concat(vec![parent.clone(), vec![Node::Begin]]),
-                        node,
-                        input,
-                    )
-                })
+                .flat_map(|statement| self.search(parent.append(Node::Begin), statement, input))
                 .collect(),
 
             lib_ruby_parser::Node::Block(node) => itertools::concat(vec![
-                self.search(
-                    itertools::concat(vec![parent.clone(), vec![Node::Block]]),
-                    &node.call,
-                    input,
-                ),
+                self.search(parent.append(Node::Block), &node.call, input),
                 node.body
                     .as_ref()
-                    .map(|body| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::Block]]),
-                            body,
-                            input,
-                        )
-                    })
+                    .map(|body| self.search(parent.append(Node::Block), body, input))
                     .unwrap_or(vec![]),
                 node.args
                     .as_ref()
-                    .map(|body| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::Block]]),
-                            body,
-                            input,
-                        )
-                    })
+                    .map(|arg| self.search(parent.append(Node::Block), arg, input))
                     .unwrap_or(vec![]),
             ]),
 
             lib_ruby_parser::Node::BlockPass(node) => node
                 .value
                 .as_ref()
-                .map(|v| {
-                    self.search(
-                        itertools::concat(vec![parent.clone(), vec![Node::BlockPass]]),
-                        v,
-                        input,
-                    )
-                })
+                .map(|v| self.search(parent.append(Node::BlockPass), v, input))
                 .unwrap_or(vec![]),
 
             lib_ruby_parser::Node::Blockarg(node) => self
                 .matcher
-                .is_match(&node.name.clone().unwrap_or("".to_string()))
+                .is_match(node.name.clone().unwrap_or("".to_string()))
                 .then(|| {
                     input
                         .line_col_for_pos(node.expression_l.begin)
@@ -562,7 +382,7 @@ impl<'a, T: Matcher> Source<'a, T> {
                             LineResult::new(
                                 pos.0,
                                 self.lines[pos.0].clone(),
-                                itertools::concat(vec![parent.clone(), vec![Node::Blockarg]]),
+                                parent.append(Node::Blockarg),
                                 pos.1,
                                 pos.1 + node.name.clone().unwrap_or("".to_string()).len(),
                             )
@@ -575,145 +395,64 @@ impl<'a, T: Matcher> Source<'a, T> {
             lib_ruby_parser::Node::Break(node) => node
                 .args
                 .iter()
-                .flat_map(|statement| {
-                    self.search(
-                        itertools::concat(vec![parent.clone(), vec![Node::Break]]),
-                        statement,
-                        input,
-                    )
-                })
+                .flat_map(|arg| self.search(parent.append(Node::Break), arg, input))
                 .collect(),
 
-            lib_ruby_parser::Node::CSend(node) => self
-                .search_node(
-                    itertools::concat(vec![parent.clone(), vec![Node::CSend]]),
+            lib_ruby_parser::Node::CSend(node) => itertools::concat(vec![
+                self.search(parent.append(Node::CSend), &node.recv, input),
+                self.search_node(
+                    parent.append(Node::CSend),
                     &node.method_name,
                     node.selector_l.unwrap_or(node.expression_l),
                     input,
                     0,
                 )
-                .map(|r| {
-                    itertools::concat(vec![
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::CSend]]),
-                            &node.recv,
-                            input,
-                        ),
-                        vec![r],
-                        node.args
-                            .iter()
-                            .flat_map(|statement| {
-                                self.search(
-                                    itertools::concat(vec![parent.clone(), vec![Node::CSend]]),
-                                    statement,
-                                    input,
-                                )
-                            })
-                            .collect(),
-                    ])
-                })
-                .unwrap_or(itertools::concat(vec![
-                    self.search(
-                        itertools::concat(vec![parent.clone(), vec![Node::CSend]]),
-                        &node.recv,
-                        input,
-                    ),
-                    node.args
-                        .iter()
-                        .flat_map(|statement| {
-                            self.search(
-                                itertools::concat(vec![parent.clone(), vec![Node::CSend]]),
-                                statement,
-                                input,
-                            )
-                        })
-                        .collect(),
-                ])),
+                .map(|r| vec![r])
+                .unwrap_or(vec![]),
+                node.args
+                    .iter()
+                    .flat_map(|arg| self.search(parent.append(Node::CSend), arg, input))
+                    .collect(),
+            ]),
 
             lib_ruby_parser::Node::Case(node) => itertools::concat(vec![
                 node.expr
                     .as_ref()
-                    .map(|expr| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::Case]]),
-                            expr,
-                            input,
-                        )
-                    })
+                    .map(|expr| self.search(parent.append(Node::Case), expr, input))
                     .unwrap_or(vec![]),
                 node.else_body
                     .as_ref()
-                    .map(|else_body| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::Case]]),
-                            else_body,
-                            input,
-                        )
-                    })
+                    .map(|else_body| self.search(parent.append(Node::Case), else_body, input))
                     .unwrap_or(vec![]),
                 node.when_bodies
                     .iter()
-                    .flat_map(|arg| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::Case]]),
-                            arg,
-                            input,
-                        )
-                    })
+                    .flat_map(|when_body| self.search(parent.append(Node::Case), when_body, input))
                     .collect(),
             ]),
 
             lib_ruby_parser::Node::CaseMatch(node) => itertools::concat(vec![
-                self.search(
-                    itertools::concat(vec![parent.clone(), vec![Node::CaseMatch]]),
-                    &node.expr,
-                    input,
-                ),
+                self.search(parent.append(Node::CaseMatch), &node.expr, input),
                 node.else_body
                     .as_ref()
-                    .map(|else_body| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::CaseMatch]]),
-                            else_body,
-                            input,
-                        )
-                    })
+                    .map(|else_body| self.search(parent.append(Node::CaseMatch), else_body, input))
                     .unwrap_or(vec![]),
                 node.in_bodies
                     .iter()
-                    .flat_map(|arg| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::CaseMatch]]),
-                            arg,
-                            input,
-                        )
-                    })
+                    .flat_map(|in_body| self.search(parent.append(Node::CaseMatch), in_body, input))
                     .collect(),
             ]),
 
             lib_ruby_parser::Node::Casgn(node) => itertools::concat(vec![
                 node.scope
                     .as_ref()
-                    .map(|scope| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::Casgn]]),
-                            scope,
-                            input,
-                        )
-                    })
+                    .map(|scope| self.search(parent.append(Node::Casgn), scope, input))
                     .unwrap_or(vec![]),
                 node.value
                     .as_ref()
-                    .map(|value| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::Casgn]]),
-                            value,
-                            input,
-                        )
-                    })
+                    .map(|value| self.search(parent.append(Node::Casgn), value, input))
                     .unwrap_or(vec![]),
                 self.search_node(
-                    itertools::concat(vec![parent, vec![Node::Casgn]]),
+                    parent.append(Node::Casgn),
                     &node.name,
                     node.name_l,
                     input,
@@ -725,13 +464,13 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::Cbase(node) => self
                 .matcher
-                .is_match("::")
+                .is_match("::".to_string())
                 .then(|| {
                     match input.line_col_for_pos(node.expression_l.begin).map(|pos| {
                         LineResult::new(
                             pos.0,
                             self.lines[pos.0].clone(),
-                            itertools::concat(vec![parent.clone(), vec![Node::Cbase]]),
+                            parent.append(Node::Cbase),
                             pos.1,
                             pos.1 + "::".len(),
                         )
@@ -744,7 +483,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::Complex(node) => {
                 match self.search_node(
-                    itertools::concat(vec![parent, vec![Node::Complex]]),
+                    parent.append(Node::Complex),
                     &node.value,
                     node.expression_l,
                     input,
@@ -756,30 +495,14 @@ impl<'a, T: Matcher> Source<'a, T> {
             }
 
             lib_ruby_parser::Node::Class(node) => itertools::concat(vec![
-                self.search(
-                    itertools::concat(vec![parent.clone(), vec![Node::Class]]),
-                    &node.name,
-                    input,
-                ),
+                self.search(parent.append(Node::Class), &node.name, input),
                 node.superclass
                     .as_ref()
-                    .map(|superclass| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::Class]]),
-                            superclass,
-                            input,
-                        )
-                    })
+                    .map(|superclass| self.search(parent.append(Node::Class), superclass, input))
                     .unwrap_or(vec![]),
                 node.body
                     .as_ref()
-                    .map(|body| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::Class]]),
-                            body,
-                            input,
-                        )
-                    })
+                    .map(|body| self.search(parent.append(Node::Class), body, input))
                     .unwrap_or(vec![]),
             ]),
 
@@ -789,32 +512,18 @@ impl<'a, T: Matcher> Source<'a, T> {
                     .unwrap_or(vec![]),
                 node.scope
                     .as_ref()
-                    .map(|scope| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::Const]]),
-                            scope,
-                            input,
-                        )
-                    })
+                    .map(|scope| self.search(parent.append(Node::Const), scope, input))
                     .unwrap_or(vec![]),
             ]),
 
             lib_ruby_parser::Node::ConstPattern(node) => itertools::concat(vec![
-                self.search(
-                    itertools::concat(vec![parent.clone(), vec![Node::ConstPattern]]),
-                    &node.const_,
-                    input,
-                ),
-                self.search(
-                    itertools::concat(vec![parent, vec![Node::ConstPattern]]),
-                    &node.pattern,
-                    input,
-                ),
+                self.search(parent.append(Node::ConstPattern), &node.const_, input),
+                self.search(parent.append(Node::ConstPattern), &node.pattern, input),
             ]),
 
             lib_ruby_parser::Node::Cvar(node) => self
                 .search_node(
-                    itertools::concat(vec![parent, vec![Node::Cvar]]),
+                    parent.append(Node::Cvar),
                     &node.name,
                     node.expression_l,
                     input,
@@ -825,7 +534,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::Cvasgn(node) => itertools::concat(vec![
                 self.search_node(
-                    itertools::concat(vec![parent.clone(), vec![Node::Cvasgn]]),
+                    parent.append(Node::Cvasgn),
                     &node.name,
                     node.expression_l,
                     input,
@@ -835,135 +544,67 @@ impl<'a, T: Matcher> Source<'a, T> {
                 .unwrap_or(vec![]),
                 node.value
                     .as_ref()
-                    .map(|value| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::Cvasgn]]),
-                            value,
-                            input,
-                        )
-                    })
+                    .map(|value| self.search(parent.append(Node::Cvasgn), value, input))
                     .unwrap_or(vec![]),
             ]),
             lib_ruby_parser::Node::Def(node) => itertools::concat(vec![
-                self.search_node(
-                    itertools::concat(vec![parent.clone(), vec![Node::Def]]),
-                    &node.name,
-                    node.name_l,
-                    &self.input,
-                    0,
-                )
-                .map(|node| vec![node])
-                .unwrap_or(vec![]),
+                self.search_node(parent.append(Node::Def), &node.name, node.name_l, input, 0)
+                    .map(|node| vec![node])
+                    .unwrap_or(vec![]),
                 node.args
                     .as_ref()
-                    .map(|args| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::Def]]),
-                            args,
-                            input,
-                        )
-                    })
+                    .map(|arg| self.search(parent.append(Node::Def), arg, input))
                     .unwrap_or(vec![]),
                 node.body
                     .as_ref()
-                    .map(|body| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::Def]]),
-                            body,
-                            input,
-                        )
-                    })
+                    .map(|body| self.search(parent.append(Node::Def), body, input))
                     .unwrap_or(vec![]),
             ]),
 
-            lib_ruby_parser::Node::Defined(node) => self.search(
-                itertools::concat(vec![parent, vec![Node::Defined]]),
-                &node.value,
-                input,
-            ),
+            lib_ruby_parser::Node::Defined(node) => {
+                self.search(parent.append(Node::Defined), &node.value, input)
+            }
 
             lib_ruby_parser::Node::Defs(node) => itertools::concat(vec![
                 node.body
                     .as_ref()
-                    .map(|body| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::Defs]]),
-                            body,
-                            input,
-                        )
-                    })
+                    .map(|body| self.search(parent.append(Node::Defs), body, input))
                     .unwrap_or(vec![]),
                 node.args
                     .as_ref()
-                    .map(|args| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::Defs]]),
-                            args,
-                            input,
-                        )
-                    })
+                    .map(|arg| self.search(parent.append(Node::Defs), arg, input))
                     .unwrap_or(vec![]),
-                self.search_node(
-                    itertools::concat(vec![parent, vec![Node::Defs]]),
-                    &node.name,
-                    node.name_l,
-                    &self.input,
-                    0,
-                )
-                .map(|x| vec![x])
-                .unwrap_or(vec![]),
+                self.search_node(parent.append(Node::Defs), &node.name, node.name_l, input, 0)
+                    .map(|x| vec![x])
+                    .unwrap_or(vec![]),
             ]),
 
             lib_ruby_parser::Node::Dstr(node) => node
                 .parts
                 .iter()
-                .flat_map(|statement| {
-                    self.search(
-                        itertools::concat(vec![parent.clone(), vec![Node::Dstr]]),
-                        statement,
-                        input,
-                    )
-                })
+                .flat_map(|part| self.search(parent.append(Node::Dstr), part, input))
                 .collect(),
 
             lib_ruby_parser::Node::Dsym(node) => node
                 .parts
                 .iter()
-                .flat_map(|statement| {
-                    self.search(
-                        itertools::concat(vec![parent.clone(), vec![Node::Dsym]]),
-                        statement,
-                        input,
-                    )
-                })
+                .flat_map(|part| self.search(parent.append(Node::Dsym), part, input))
                 .collect(),
 
             lib_ruby_parser::Node::EFlipFlop(node) => itertools::concat(vec![
                 node.left
                     .as_ref()
-                    .map(|left| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::EFlipFlop]]),
-                            left,
-                            input,
-                        )
-                    })
+                    .map(|left| self.search(parent.append(Node::EFlipFlop), left, input))
                     .unwrap_or(vec![]),
                 node.right
                     .as_ref()
-                    .map(|right| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::EFlipFlop]]),
-                            right,
-                            input,
-                        )
-                    })
+                    .map(|right| self.search(parent.append(Node::EFlipFlop), right, input))
                     .unwrap_or(vec![]),
             ]),
 
             lib_ruby_parser::Node::EmptyElse(node) => self
                 .matcher
-                .is_match("else")
+                .is_match("else".to_string())
                 .then(|| {
                     input
                         .line_col_for_pos(node.expression_l.begin)
@@ -971,7 +612,7 @@ impl<'a, T: Matcher> Source<'a, T> {
                             LineResult::new(
                                 pos.0,
                                 self.lines[pos.0].clone(),
-                                itertools::concat(vec![parent.clone(), vec![Node::EmptyElse]]),
+                                parent.append(Node::EmptyElse),
                                 pos.1,
                                 pos.1 + "else".len(),
                             )
@@ -983,7 +624,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::Encoding(node) => self
                 .matcher
-                .is_match("__ENCODING__")
+                .is_match("__ENCODING__".to_string())
                 .then(|| {
                     input
                         .line_col_for_pos(node.expression_l.begin)
@@ -991,7 +632,7 @@ impl<'a, T: Matcher> Source<'a, T> {
                             LineResult::new(
                                 pos.0,
                                 self.lines[pos.0].clone(),
-                                itertools::concat(vec![parent.clone(), vec![Node::Encoding]]),
+                                parent.append(Node::Encoding),
                                 pos.1,
                                 pos.1 + "__ENCODING__".len(),
                             )
@@ -1004,58 +645,34 @@ impl<'a, T: Matcher> Source<'a, T> {
             lib_ruby_parser::Node::Ensure(node) => itertools::concat(vec![
                 node.body
                     .as_ref()
-                    .map(|body| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::Ensure]]),
-                            body,
-                            input,
-                        )
-                    })
+                    .map(|body| self.search(parent.append(Node::Ensure), body, input))
                     .unwrap_or(vec![]),
                 node.ensure
                     .as_ref()
-                    .map(|ensure| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::Ensure]]),
-                            ensure,
-                            input,
-                        )
-                    })
+                    .map(|ensure| self.search(parent.append(Node::Ensure), ensure, input))
                     .unwrap_or(vec![]),
             ]),
 
             lib_ruby_parser::Node::Erange(node) => itertools::concat(vec![
                 node.left
                     .as_ref()
-                    .map(|left| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::Erange]]),
-                            left,
-                            input,
-                        )
-                    })
+                    .map(|left| self.search(parent.append(Node::Erange), left, input))
                     .unwrap_or(vec![]),
                 node.right
                     .as_ref()
-                    .map(|right| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::Erange]]),
-                            right,
-                            input,
-                        )
-                    })
+                    .map(|right| self.search(parent.append(Node::Erange), right, input))
                     .unwrap_or(vec![]),
             ]),
 
             lib_ruby_parser::Node::False(node) => self
                 .matcher
-                .is_match("false")
+                .is_match("false".to_string())
                 .then(|| {
                     match input.line_col_for_pos(node.expression_l.begin).map(|pos| {
                         LineResult::new(
                             pos.0,
                             self.lines[pos.0].clone(),
-                            itertools::concat(vec![parent.clone(), vec![Node::False]]),
+                            parent.append(Node::False),
                             pos.1,
                             pos.1 + "false".len(),
                         )
@@ -1068,13 +685,13 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::File(node) => self
                 .matcher
-                .is_match("__FILE__")
+                .is_match("(__FILE__".to_string())
                 .then(|| {
                     match input.line_col_for_pos(node.expression_l.begin).map(|pos| {
                         LineResult::new(
                             pos.0,
                             self.lines[pos.0].clone(),
-                            itertools::concat(vec![parent.clone(), vec![Node::File]]),
+                            parent.append(Node::File),
                             pos.1,
                             pos.1 + "__FILE__".len(),
                         )
@@ -1088,18 +705,12 @@ impl<'a, T: Matcher> Source<'a, T> {
             lib_ruby_parser::Node::FindPattern(node) => node
                 .elements
                 .iter()
-                .flat_map(|statement| {
-                    self.search(
-                        itertools::concat(vec![parent.clone(), vec![Node::FindPattern]]),
-                        statement,
-                        input,
-                    )
-                })
+                .flat_map(|element| self.search(parent.append(Node::FindPattern), element, input))
                 .collect(),
 
             lib_ruby_parser::Node::Float(node) => self
                 .search_node(
-                    itertools::concat(vec![parent, vec![Node::Float]]),
+                    parent.append(Node::Float),
                     &node.value,
                     node.expression_l,
                     input,
@@ -1111,29 +722,15 @@ impl<'a, T: Matcher> Source<'a, T> {
             lib_ruby_parser::Node::For(node) => itertools::concat(vec![
                 node.body
                     .as_ref()
-                    .map(|body| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::For]]),
-                            body,
-                            input,
-                        )
-                    })
+                    .map(|body| self.search(parent.append(Node::For), body, input))
                     .unwrap_or(vec![]),
-                self.search(
-                    itertools::concat(vec![parent.clone(), vec![Node::For]]),
-                    &node.iterator,
-                    input,
-                ),
-                self.search(
-                    itertools::concat(vec![parent, vec![Node::For]]),
-                    &node.iteratee,
-                    input,
-                ),
+                self.search(parent.append(Node::For), &node.iterator, input),
+                self.search(parent.append(Node::For), &node.iteratee, input),
             ]),
 
             lib_ruby_parser::Node::ForwardArg(node) => self
                 .matcher
-                .is_match("...")
+                .is_match("...".to_string())
                 .then(|| {
                     input
                         .line_col_for_pos(node.expression_l.begin)
@@ -1141,7 +738,7 @@ impl<'a, T: Matcher> Source<'a, T> {
                             LineResult::new(
                                 pos.0,
                                 self.lines[pos.0].clone(),
-                                itertools::concat(vec![parent.clone(), vec![Node::ForwardArg]]),
+                                parent.append(Node::ForwardArg),
                                 pos.1,
                                 pos.1 + "...".len(),
                             )
@@ -1153,7 +750,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::ForwardedArgs(node) => self
                 .matcher
-                .is_match("...")
+                .is_match("...".to_string())
                 .then(|| {
                     input
                         .line_col_for_pos(node.expression_l.begin)
@@ -1161,7 +758,7 @@ impl<'a, T: Matcher> Source<'a, T> {
                             LineResult::new(
                                 pos.0,
                                 self.lines[pos.0].clone(),
-                                itertools::concat(vec![parent.clone(), vec![Node::ForwardArg]]),
+                                parent.append(Node::ForwardArg),
                                 pos.1,
                                 pos.1 + "...".len(),
                             )
@@ -1173,7 +770,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::Gvar(node) => self
                 .matcher
-                .is_match(&node.name)
+                .is_match(node.name.clone())
                 .then(|| {
                     input
                         .line_col_for_pos(node.expression_l.begin)
@@ -1181,7 +778,7 @@ impl<'a, T: Matcher> Source<'a, T> {
                             LineResult::new(
                                 pos.0,
                                 self.lines[pos.0].clone(),
-                                itertools::concat(vec![parent.clone(), vec![Node::Gvar]]),
+                                parent.append(Node::Gvar),
                                 pos.1,
                                 pos.1 + node.name.len(),
                             )
@@ -1194,16 +791,10 @@ impl<'a, T: Matcher> Source<'a, T> {
             lib_ruby_parser::Node::Gvasgn(node) => itertools::concat(vec![
                 node.value
                     .as_ref()
-                    .map(|v| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::Gvasgn]]),
-                            v,
-                            input,
-                        )
-                    })
+                    .map(|v| self.search(parent.append(Node::Gvasgn), v, input))
                     .unwrap_or(vec![]),
                 self.search_node(
-                    itertools::concat(vec![parent, vec![Node::Gvasgn]]),
+                    parent.append(Node::Gvasgn),
                     &node.name.to_string(),
                     node.expression_l,
                     input,
@@ -1216,219 +807,101 @@ impl<'a, T: Matcher> Source<'a, T> {
             lib_ruby_parser::Node::Hash(node) => node
                 .pairs
                 .iter()
-                .flat_map(|statement| {
-                    self.search(
-                        itertools::concat(vec![parent.clone(), vec![Node::Hash]]),
-                        statement,
-                        input,
-                    )
-                })
+                .flat_map(|part| self.search(parent.append(Node::Hash), part, input))
                 .collect(),
 
             lib_ruby_parser::Node::HashPattern(node) => node
                 .elements
                 .iter()
-                .flat_map(|statement| {
-                    self.search(
-                        itertools::concat(vec![parent.clone(), vec![Node::HashPattern]]),
-                        statement,
-                        input,
-                    )
-                })
+                .flat_map(|element| self.search(parent.append(Node::HashPattern), element, input))
                 .collect(),
 
             lib_ruby_parser::Node::Heredoc(node) => node
                 .parts
                 .iter()
-                .flat_map(|statement| {
-                    self.search(
-                        itertools::concat(vec![parent.clone(), vec![Node::Heredoc]]),
-                        statement,
-                        input,
-                    )
-                })
+                .flat_map(|part| self.search(parent.append(Node::Heredoc), part, input))
                 .collect(),
 
             lib_ruby_parser::Node::IFlipFlop(node) => itertools::concat(vec![
                 node.left
                     .as_ref()
-                    .map(|left| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::IFlipFlop]]),
-                            left,
-                            input,
-                        )
-                    })
+                    .map(|left| self.search(parent.append(Node::IFlipFlop), left, input))
                     .unwrap_or(vec![]),
                 node.right
                     .as_ref()
-                    .map(|right| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::IFlipFlop]]),
-                            right,
-                            input,
-                        )
-                    })
+                    .map(|right| self.search(parent.append(Node::IFlipFlop), right, input))
                     .unwrap_or(vec![]),
             ]),
 
             lib_ruby_parser::Node::If(node) => itertools::concat(vec![
                 node.if_true
                     .as_ref()
-                    .map(|if_true| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::If]]),
-                            if_true,
-                            input,
-                        )
-                    })
+                    .map(|if_true| self.search(parent.append(Node::If), if_true, input))
                     .unwrap_or(vec![]),
                 node.if_false
                     .as_ref()
-                    .map(|if_false| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::If]]),
-                            if_false,
-                            input,
-                        )
-                    })
+                    .map(|if_false| self.search(parent.append(Node::If), if_false, input))
                     .unwrap_or(vec![]),
-                self.search(
-                    itertools::concat(vec![parent, vec![Node::If]]),
-                    &node.cond,
-                    input,
-                ),
+                self.search(parent.append(Node::If), &node.cond, input),
             ]),
 
-            lib_ruby_parser::Node::IfGuard(node) => self.search(
-                itertools::concat(vec![parent, vec![Node::IfGuard]]),
-                &node.cond,
-                input,
-            ),
+            lib_ruby_parser::Node::IfGuard(node) => {
+                self.search(parent.append(Node::IfGuard), &node.cond, input)
+            }
 
             lib_ruby_parser::Node::IfMod(node) => itertools::concat(vec![
                 node.if_true
                     .as_ref()
-                    .map(|if_true| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::IfMod]]),
-                            if_true,
-                            input,
-                        )
-                    })
+                    .map(|if_true| self.search(parent.append(Node::IfMod), if_true, input))
                     .unwrap_or(vec![]),
                 node.if_false
                     .as_ref()
-                    .map(|if_false| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::IfMod]]),
-                            if_false,
-                            input,
-                        )
-                    })
+                    .map(|if_false| self.search(parent.append(Node::IfMod), if_false, input))
                     .unwrap_or(vec![]),
-                self.search(
-                    itertools::concat(vec![parent, vec![Node::IfMod]]),
-                    &node.cond,
-                    input,
-                ),
+                self.search(parent.append(Node::IfMod), &node.cond, input),
             ]),
 
             lib_ruby_parser::Node::IfTernary(node) => itertools::concat(vec![
-                self.search(
-                    itertools::concat(vec![parent.clone(), vec![Node::IfTernary]]),
-                    &node.cond,
-                    input,
-                ),
-                self.search(
-                    itertools::concat(vec![parent.clone(), vec![Node::IfTernary]]),
-                    &node.if_true,
-                    input,
-                ),
-                self.search(
-                    itertools::concat(vec![parent, vec![Node::IfTernary]]),
-                    &node.if_false,
-                    input,
-                ),
+                self.search(parent.append(Node::IfTernary), &node.cond, input),
+                self.search(parent.append(Node::IfTernary), &node.if_true, input),
+                self.search(parent.append(Node::IfTernary), &node.if_false, input),
             ]),
 
             lib_ruby_parser::Node::InPattern(node) => itertools::concat(vec![
                 node.guard
                     .as_ref()
-                    .map(|guard| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::InPattern]]),
-                            guard,
-                            input,
-                        )
-                    })
+                    .map(|guard| self.search(parent.append(Node::InPattern), guard, input))
                     .unwrap_or(vec![]),
                 node.body
                     .as_ref()
-                    .map(|body| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::InPattern]]),
-                            body,
-                            input,
-                        )
-                    })
+                    .map(|body| self.search(parent.append(Node::InPattern), body, input))
                     .unwrap_or(vec![]),
-                self.search(
-                    itertools::concat(vec![parent, vec![Node::InPattern]]),
-                    &node.pattern,
-                    input,
-                ),
+                self.search(parent.append(Node::InPattern), &node.pattern, input),
             ]),
 
             lib_ruby_parser::Node::Index(node) => itertools::concat(vec![
-                self.search(
-                    itertools::concat(vec![parent.clone(), vec![Node::Index]]),
-                    &node.recv,
-                    input,
-                ),
+                self.search(parent.append(Node::Index), &node.recv, input),
                 node.indexes
                     .iter()
-                    .flat_map(|statement| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::Index]]),
-                            statement,
-                            input,
-                        )
-                    })
+                    .flat_map(|index| self.search(parent.append(Node::Index), index, input))
                     .collect(),
             ]),
 
             lib_ruby_parser::Node::IndexAsgn(node) => itertools::concat(vec![
                 node.value
                     .as_ref()
-                    .map(|value| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::IndexAsgn]]),
-                            value,
-                            input,
-                        )
-                    })
+                    .map(|value| self.search(parent.append(Node::IndexAsgn), value, input))
                     .unwrap_or(vec![]),
-                self.search(
-                    itertools::concat(vec![parent.clone(), vec![Node::IndexAsgn]]),
-                    &node.recv,
-                    input,
-                ),
+                self.search(parent.append(Node::IndexAsgn), &node.recv, input),
                 node.indexes
                     .iter()
-                    .flat_map(|statement| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::IndexAsgn]]),
-                            statement,
-                            input,
-                        )
-                    })
+                    .flat_map(|index| self.search(parent.append(Node::IndexAsgn), index, input))
                     .collect(),
             ]),
 
             lib_ruby_parser::Node::Int(node) => self
                 .search_node(
-                    itertools::concat(vec![parent, vec![Node::Int]]),
+                    parent.append(Node::Int),
                     &node.value,
                     node.expression_l,
                     input,
@@ -1440,35 +913,23 @@ impl<'a, T: Matcher> Source<'a, T> {
             lib_ruby_parser::Node::Irange(node) => itertools::concat(vec![
                 node.left
                     .as_ref()
-                    .map(|left| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::Irange]]),
-                            left,
-                            input,
-                        )
-                    })
+                    .map(|left| self.search(parent.append(Node::Irange), left, input))
                     .unwrap_or(vec![]),
                 node.right
                     .as_ref()
-                    .map(|right| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::Irange]]),
-                            right,
-                            input,
-                        )
-                    })
+                    .map(|right| self.search(parent.append(Node::Irange), right, input))
                     .unwrap_or(vec![]),
             ]),
 
             lib_ruby_parser::Node::Ivar(node) => self
                 .matcher
-                .is_match(&node.name)
+                .is_match(node.name.clone())
                 .then(|| {
                     match input.line_col_for_pos(node.expression_l.begin).map(|pos| {
                         LineResult::new(
                             pos.0,
                             self.lines[pos.0].clone(),
-                            itertools::concat(vec![parent.clone(), vec![Node::Ivar]]),
+                            parent.append(Node::Ivar),
                             pos.1,
                             pos.1 + node.name.len(),
                         )
@@ -1481,7 +942,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::Ivasgn(node) => itertools::concat(vec![
                 self.search_node(
-                    itertools::concat(vec![parent.clone(), vec![Node::Ivasgn]]),
+                    parent.append(Node::Ivasgn),
                     &node.name,
                     node.name_l,
                     input,
@@ -1491,37 +952,25 @@ impl<'a, T: Matcher> Source<'a, T> {
                 .unwrap_or(vec![]),
                 node.value
                     .as_ref()
-                    .map(|value| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::Ivasgn]]),
-                            value,
-                            input,
-                        )
-                    })
+                    .map(|value| self.search(parent.append(Node::Ivasgn), value, input))
                     .unwrap_or(vec![]),
             ]),
 
             lib_ruby_parser::Node::KwBegin(node) => node
                 .statements
                 .iter()
-                .flat_map(|statement| {
-                    self.search(
-                        itertools::concat(vec![parent.clone(), vec![Node::KwBegin]]),
-                        statement,
-                        input,
-                    )
-                })
+                .flat_map(|statement| self.search(parent.append(Node::KwBegin), statement, input))
                 .collect(),
 
             lib_ruby_parser::Node::Kwarg(node) => self
                 .matcher
-                .is_match(&node.name)
+                .is_match(node.name.clone())
                 .then(|| {
                     match input.line_col_for_pos(node.expression_l.begin).map(|pos| {
                         LineResult::new(
                             pos.0,
                             self.lines[pos.0].clone(),
-                            itertools::concat(vec![parent.clone(), vec![Node::Kwarg]]),
+                            parent.append(Node::Kwarg),
                             pos.1,
                             pos.1 + node.name.len(),
                         )
@@ -1535,24 +984,18 @@ impl<'a, T: Matcher> Source<'a, T> {
             lib_ruby_parser::Node::Kwargs(node) => node
                 .pairs
                 .iter()
-                .flat_map(|statement| {
-                    self.search(
-                        itertools::concat(vec![parent.clone(), vec![Node::Kwargs]]),
-                        statement,
-                        input,
-                    )
-                })
+                .flat_map(|pair| self.search(parent.append(Node::Kwargs), pair, input))
                 .collect(),
 
             lib_ruby_parser::Node::Kwnilarg(node) => self
                 .matcher
-                .is_match("**nil")
+                .is_match("**nil".to_string())
                 .then(|| {
                     match input.line_col_for_pos(node.expression_l.begin).map(|pos| {
                         LineResult::new(
                             pos.0,
                             self.lines[pos.0].clone(),
-                            itertools::concat(vec![parent.clone(), vec![Node::Kwnilarg]]),
+                            parent.append(Node::Kwnilarg),
                             pos.1,
                             pos.1 + "**nil".len(),
                         )
@@ -1565,42 +1008,30 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::Kwoptarg(node) => self
                 .matcher
-                .is_match(&node.name)
+                .is_match(node.name.clone())
                 .then(|| {
                     match input.line_col_for_pos(node.expression_l.begin).map(|pos| {
                         LineResult::new(
                             pos.0,
                             self.lines[pos.0].clone(),
-                            itertools::concat(vec![parent.clone(), vec![Node::Kwoptarg]]),
+                            parent.append(Node::Kwoptarg),
                             pos.1,
                             pos.1 + node.name.len(),
                         )
                     }) {
                         Some(result) => itertools::concat(vec![
-                            self.search(
-                                itertools::concat(vec![parent.clone(), vec![Node::Kwoptarg]]),
-                                &node.default,
-                                input,
-                            ),
+                            self.search(parent.append(Node::Kwoptarg), &node.default, input),
                             vec![result],
                         ]),
-                        None => self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::Kwoptarg]]),
-                            &node.default,
-                            input,
-                        ),
+                        None => self.search(parent.append(Node::Kwoptarg), &node.default, input),
                     }
                 })
-                .unwrap_or(self.search(
-                    itertools::concat(vec![parent, vec![Node::Kwoptarg]]),
-                    &node.default,
-                    input,
-                )),
+                .unwrap_or(self.search(parent.append(Node::Kwoptarg), &node.default, input)),
 
             lib_ruby_parser::Node::Kwrestarg(node) => match &node.name {
                 Some(name) => self
                     .matcher
-                    .is_match(name)
+                    .is_match(name.clone())
                     .then(|| {
                         input
                             .line_col_for_pos(node.expression_l.begin)
@@ -1608,7 +1039,7 @@ impl<'a, T: Matcher> Source<'a, T> {
                                 LineResult::new(
                                     pos.0,
                                     self.lines[pos.0].clone(),
-                                    itertools::concat(vec![parent.clone(), vec![Node::Kwrestarg]]),
+                                    parent.append(Node::Kwrestarg),
                                     pos.1,
                                     pos.1 + name.len(),
                                 )
@@ -1620,15 +1051,13 @@ impl<'a, T: Matcher> Source<'a, T> {
                 None => vec![],
             },
 
-            lib_ruby_parser::Node::Kwsplat(node) => self.search(
-                itertools::concat(vec![parent, vec![Node::Kwsplat]]),
-                &node.value,
-                input,
-            ),
+            lib_ruby_parser::Node::Kwsplat(node) => {
+                self.search(parent.append(Node::Kwsplat), &node.value, input)
+            }
 
             lib_ruby_parser::Node::Lambda(node) => self
                 .matcher
-                .is_match("->")
+                .is_match("->".to_string())
                 .then(|| {
                     input
                         .line_col_for_pos(node.expression_l.begin)
@@ -1636,7 +1065,7 @@ impl<'a, T: Matcher> Source<'a, T> {
                             LineResult::new(
                                 pos.0,
                                 self.lines[pos.0].clone(),
-                                itertools::concat(vec![parent.clone(), vec![Node::Lambda]]),
+                                parent.append(Node::Lambda),
                                 pos.1,
                                 pos.1 + "->".len(),
                             )
@@ -1648,7 +1077,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::Line(node) => self
                 .matcher
-                .is_match("__LINE__")
+                .is_match("__LINE__".to_string())
                 .then(|| {
                     input
                         .line_col_for_pos(node.expression_l.begin)
@@ -1656,7 +1085,7 @@ impl<'a, T: Matcher> Source<'a, T> {
                             LineResult::new(
                                 pos.0,
                                 self.lines[pos.0].clone(),
-                                itertools::concat(vec![parent.clone(), vec![Node::Line]]),
+                                parent.append(Node::Line),
                                 pos.1,
                                 pos.1 + "__LINE__".len(),
                             )
@@ -1668,7 +1097,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::Lvar(node) => self
                 .matcher
-                .is_match(&node.name)
+                .is_match(node.name.clone())
                 .then(|| {
                     input
                         .line_col_for_pos(node.expression_l.begin)
@@ -1676,7 +1105,7 @@ impl<'a, T: Matcher> Source<'a, T> {
                             LineResult::new(
                                 pos.0,
                                 self.lines[pos.0].clone(),
-                                itertools::concat(vec![parent.clone(), vec![Node::Lvar]]),
+                                parent.append(Node::Lvar),
                                 pos.1,
                                 pos.1 + node.name.len(),
                             )
@@ -1687,93 +1116,56 @@ impl<'a, T: Matcher> Source<'a, T> {
                 .unwrap_or(vec![]),
 
             lib_ruby_parser::Node::Lvasgn(node) => {
-                if self.matcher.is_match(&node.name) {
-                    input
-                        .line_col_for_pos(node.name_l.begin)
-                        .map(|pos| {
-                            LineResult::new(
-                                pos.0,
-                                self.lines[pos.0].clone(),
-                                itertools::concat(vec![parent.clone(), vec![Node::Lvasgn]]),
-                                pos.1,
-                                pos.1 + node.name.len(),
-                            )
-                        })
-                        .map(|r| vec![r])
-                        .unwrap_or(
-                            node.value
-                                .as_ref()
-                                .map(|value| {
-                                    self.search(
-                                        itertools::concat(vec![parent, vec![Node::Lvasgn]]),
-                                        value,
-                                        input,
-                                    )
-                                })
-                                .unwrap_or(vec![]),
-                        )
+                if self.matcher.is_match(node.name.clone()) {
+                    itertools::concat(vec![
+                        input
+                            .line_col_for_pos(node.name_l.begin)
+                            .map(|pos| {
+                                LineResult::new(
+                                    pos.0,
+                                    self.lines[pos.0].clone(),
+                                    parent.append(Node::Lvasgn),
+                                    pos.1,
+                                    pos.1 + node.name.len(),
+                                )
+                            })
+                            .map(|r| vec![r])
+                            .unwrap_or(vec![]),
+                        node.value
+                            .as_ref()
+                            .map(|value| self.search(parent.append(Node::Lvasgn), value, input))
+                            .unwrap_or(vec![]),
+                    ])
                 } else {
                     node.value
                         .as_ref()
-                        .map(|value| {
-                            self.search(
-                                itertools::concat(vec![parent.clone(), vec![Node::Lvasgn]]),
-                                value,
-                                input,
-                            )
-                        })
+                        .map(|value| self.search(parent.append(Node::Lvasgn), value, input))
                         .unwrap_or(vec![])
                 }
             }
 
             lib_ruby_parser::Node::Masgn(node) => itertools::concat(vec![
-                self.search(
-                    itertools::concat(vec![parent.clone(), vec![Node::Masgn]]),
-                    &node.lhs,
-                    input,
-                ),
-                self.search(
-                    itertools::concat(vec![parent, vec![Node::Masgn]]),
-                    &node.rhs,
-                    input,
-                ),
+                self.search(parent.append(Node::Masgn), &node.lhs, input),
+                self.search(parent.append(Node::Masgn), &node.rhs, input),
             ]),
 
             lib_ruby_parser::Node::MatchAlt(node) => itertools::concat(vec![
-                self.search(
-                    itertools::concat(vec![parent.clone(), vec![Node::MatchAlt]]),
-                    &node.lhs,
-                    input,
-                ),
-                self.search(
-                    itertools::concat(vec![parent, vec![Node::MatchAlt]]),
-                    &node.rhs,
-                    input,
-                ),
+                self.search(parent.append(Node::MatchAlt), &node.lhs, input),
+                self.search(parent.append(Node::MatchAlt), &node.rhs, input),
             ]),
 
             lib_ruby_parser::Node::MatchAs(node) => itertools::concat(vec![
-                self.search(
-                    itertools::concat(vec![parent.clone(), vec![Node::MatchAs]]),
-                    &node.value,
-                    input,
-                ),
-                self.search(
-                    itertools::concat(vec![parent, vec![Node::MatchAs]]),
-                    &node.as_,
-                    input,
-                ),
+                self.search(parent.append(Node::MatchAs), &node.value, input),
+                self.search(parent.append(Node::MatchAs), &node.as_, input),
             ]),
 
-            lib_ruby_parser::Node::MatchCurrentLine(node) => self.search(
-                itertools::concat(vec![parent, vec![Node::MatchCurrentLine]]),
-                &node.re,
-                input,
-            ),
+            lib_ruby_parser::Node::MatchCurrentLine(node) => {
+                self.search(parent.append(Node::MatchCurrentLine), &node.re, input)
+            }
 
             lib_ruby_parser::Node::MatchNilPattern(node) => self
                 .matcher
-                .is_match("**nil")
+                .is_match("**nil".to_string())
                 .then(|| {
                     input
                         .line_col_for_pos(node.expression_l.begin)
@@ -1781,10 +1173,7 @@ impl<'a, T: Matcher> Source<'a, T> {
                             LineResult::new(
                                 pos.0,
                                 self.lines[pos.0].clone(),
-                                itertools::concat(vec![
-                                    parent.clone(),
-                                    vec![Node::MatchNilPattern],
-                                ]),
+                                parent.append(Node::MatchNilPattern),
                                 pos.1,
                                 pos.1 + "**nil".len(),
                             )
@@ -1795,46 +1184,24 @@ impl<'a, T: Matcher> Source<'a, T> {
                 .unwrap_or(vec![]),
 
             lib_ruby_parser::Node::MatchPattern(node) => itertools::concat(vec![
-                self.search(
-                    itertools::concat(vec![parent.clone(), vec![Node::MatchPattern]]),
-                    &node.value,
-                    input,
-                ),
-                self.search(
-                    itertools::concat(vec![parent, vec![Node::MatchPattern]]),
-                    &node.pattern,
-                    input,
-                ),
+                self.search(parent.append(Node::MatchPattern), &node.value, input),
+                self.search(parent.append(Node::MatchPattern), &node.pattern, input),
             ]),
 
             lib_ruby_parser::Node::MatchPatternP(node) => itertools::concat(vec![
-                self.search(
-                    itertools::concat(vec![parent.clone(), vec![Node::MatchPatternP]]),
-                    &node.value,
-                    input,
-                ),
-                self.search(
-                    itertools::concat(vec![parent, vec![Node::MatchPatternP]]),
-                    &node.pattern,
-                    input,
-                ),
+                self.search(parent.append(Node::MatchPatternP), &node.value, input),
+                self.search(parent.append(Node::MatchPatternP), &node.pattern, input),
             ]),
 
             lib_ruby_parser::Node::MatchRest(node) => node
                 .name
                 .as_ref()
-                .map(|name| {
-                    self.search(
-                        itertools::concat(vec![parent.clone(), vec![Node::MatchRest]]),
-                        name,
-                        input,
-                    )
-                })
+                .map(|name| self.search(parent.append(Node::MatchRest), name, input))
                 .unwrap_or(vec![]),
 
             lib_ruby_parser::Node::MatchVar(node) => self
                 .matcher
-                .is_match(&node.name)
+                .is_match(node.name.clone())
                 .then(|| {
                     input
                         .line_col_for_pos(node.expression_l.begin)
@@ -1842,7 +1209,7 @@ impl<'a, T: Matcher> Source<'a, T> {
                             LineResult::new(
                                 pos.0,
                                 self.lines[pos.0].clone(),
-                                itertools::concat(vec![parent.clone(), vec![Node::MatchVar]]),
+                                parent.append(Node::MatchVar),
                                 pos.1,
                                 pos.1 + node.name.len(),
                             )
@@ -1853,47 +1220,27 @@ impl<'a, T: Matcher> Source<'a, T> {
                 .unwrap_or(vec![]),
 
             lib_ruby_parser::Node::MatchWithLvasgn(node) => itertools::concat(vec![
-                self.search(
-                    itertools::concat(vec![parent.clone(), vec![Node::MatchWithLvasgn]]),
-                    &node.re,
-                    input,
-                ),
-                self.search(
-                    itertools::concat(vec![parent, vec![Node::MatchWithLvasgn]]),
-                    &node.value,
-                    input,
-                ),
+                self.search(parent.append(Node::MatchWithLvasgn), &node.re, input),
+                self.search(parent.append(Node::MatchWithLvasgn), &node.value, input),
             ]),
 
-            lib_ruby_parser::Node::Mlhs(node) => itertools::concat(node.items.iter().map(|arg| {
-                self.search(
-                    itertools::concat(vec![parent.clone(), vec![Node::Mlhs]]),
-                    arg,
-                    input,
-                )
-            })),
+            lib_ruby_parser::Node::Mlhs(node) => itertools::concat(
+                node.items
+                    .iter()
+                    .map(|arg| self.search(parent.append(Node::Mlhs), arg, input)),
+            ),
 
             lib_ruby_parser::Node::Module(node) => itertools::concat(vec![
-                self.search(
-                    itertools::concat(vec![parent.clone(), vec![Node::Module]]),
-                    &node.name,
-                    input,
-                ),
+                self.search(parent.append(Node::Module), &node.name, input),
                 node.body
                     .as_ref()
-                    .map(|body| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::Module]]),
-                            body,
-                            input,
-                        )
-                    })
+                    .map(|body| self.search(parent.append(Node::Module), body, input))
                     .unwrap_or(vec![]),
             ]),
 
             lib_ruby_parser::Node::Next(node) => itertools::concat(vec![
                 self.matcher
-                    .is_match("next")
+                    .is_match("next".to_string())
                     .then(|| {
                         input
                             .line_col_for_pos(node.expression_l.begin)
@@ -1901,7 +1248,7 @@ impl<'a, T: Matcher> Source<'a, T> {
                                 LineResult::new(
                                     pos.0,
                                     self.lines[pos.0].clone(),
-                                    itertools::concat(vec![parent.clone(), vec![Node::Next]]),
+                                    parent.append(Node::Next),
                                     pos.1,
                                     pos.1 + "next".len(),
                                 )
@@ -1912,19 +1259,13 @@ impl<'a, T: Matcher> Source<'a, T> {
                     .unwrap_or(vec![]),
                 node.args
                     .iter()
-                    .flat_map(|arg| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::Next]]),
-                            arg,
-                            input,
-                        )
-                    })
+                    .flat_map(|arg| self.search(parent.append(Node::Next), arg, input))
                     .collect::<Vec<LineResult>>(),
             ]),
 
             lib_ruby_parser::Node::Nil(node) => self
                 .matcher
-                .is_match("nil")
+                .is_match("nil".to_string())
                 .then(|| {
                     input
                         .line_col_for_pos(node.expression_l.begin)
@@ -1932,7 +1273,7 @@ impl<'a, T: Matcher> Source<'a, T> {
                             LineResult::new(
                                 pos.0,
                                 self.lines[pos.0].clone(),
-                                itertools::concat(vec![parent.clone(), vec![Node::Nil]]),
+                                parent.append(Node::Nil),
                                 pos.1,
                                 pos.1 + "nil".len(),
                             )
@@ -1944,7 +1285,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::NthRef(node) => self
                 .matcher
-                .is_match(format!("${}", &node.name).as_str())
+                .is_match(format!("${}", &node.name))
                 .then(|| {
                     input
                         .line_col_for_pos(node.expression_l.begin)
@@ -1952,7 +1293,7 @@ impl<'a, T: Matcher> Source<'a, T> {
                             LineResult::new(
                                 pos.0,
                                 self.lines[pos.0].clone(),
-                                itertools::concat(vec![parent.clone(), vec![Node::NthRef]]),
+                                parent.append(Node::NthRef),
                                 pos.1,
                                 pos.1 + node.name.len(),
                             )
@@ -1963,18 +1304,10 @@ impl<'a, T: Matcher> Source<'a, T> {
                 .unwrap_or(vec![]),
 
             lib_ruby_parser::Node::Numblock(node) => itertools::concat(vec![
-                self.search(
-                    itertools::concat(vec![parent.clone(), vec![Node::Numblock]]),
-                    &node.call,
-                    input,
-                ),
-                self.search(
-                    itertools::concat(vec![parent.clone(), vec![Node::Numblock]]),
-                    &node.body,
-                    input,
-                ),
+                self.search(parent.append(Node::Numblock), &node.call, input),
+                self.search(parent.append(Node::Numblock), &node.body, input),
                 self.matcher
-                    .is_match(format!("_{}", node.numargs).as_str())
+                    .is_match(format!("_{}", node.numargs))
                     .then(|| {
                         input
                             .line_col_for_pos(node.begin_l.begin)
@@ -1982,7 +1315,7 @@ impl<'a, T: Matcher> Source<'a, T> {
                                 LineResult::new(
                                     pos.0,
                                     self.lines[pos.0].clone(),
-                                    itertools::concat(vec![parent.clone(), vec![Node::Numblock]]),
+                                    parent.append(Node::Numblock),
                                     pos.1,
                                     pos.1 + "nil".len(),
                                 )
@@ -1994,21 +1327,13 @@ impl<'a, T: Matcher> Source<'a, T> {
             ]),
 
             lib_ruby_parser::Node::OpAsgn(node) => itertools::concat(vec![
-                self.search(
-                    itertools::concat(vec![parent.clone(), vec![Node::OpAsgn]]),
-                    &node.recv,
-                    input,
-                ),
-                self.search(
-                    itertools::concat(vec![parent, vec![Node::OpAsgn]]),
-                    &node.value,
-                    input,
-                ),
+                self.search(parent.append(Node::OpAsgn), &node.recv, input),
+                self.search(parent.append(Node::OpAsgn), &node.value, input),
             ]),
 
             lib_ruby_parser::Node::Optarg(node) => self
                 .matcher
-                .is_match(&node.name)
+                .is_match(node.name.clone())
                 .then(|| {
                     input
                         .line_col_for_pos(node.name_l.begin)
@@ -2016,7 +1341,7 @@ impl<'a, T: Matcher> Source<'a, T> {
                             LineResult::new(
                                 pos.0,
                                 self.lines[pos.0].clone(),
-                                itertools::concat(vec![parent.clone(), vec![Node::Optarg]]),
+                                parent.append(Node::Optarg),
                                 pos.1,
                                 pos.1 + node.name.len(),
                             )
@@ -2027,53 +1352,27 @@ impl<'a, T: Matcher> Source<'a, T> {
                 .unwrap_or(vec![]),
 
             lib_ruby_parser::Node::Or(node) => itertools::concat(vec![
-                self.search(
-                    itertools::concat(vec![parent.clone(), vec![Node::Or]]),
-                    &node.lhs,
-                    input,
-                ),
-                self.search(
-                    itertools::concat(vec![parent, vec![Node::Or]]),
-                    &node.rhs,
-                    input,
-                ),
+                self.search(parent.append(Node::Or), &node.lhs, input),
+                self.search(parent.append(Node::Or), &node.rhs, input),
             ]),
 
             lib_ruby_parser::Node::OrAsgn(node) => itertools::concat(vec![
-                self.search(
-                    itertools::concat(vec![parent.clone(), vec![Node::OrAsgn]]),
-                    &node.recv,
-                    input,
-                ),
-                self.search(
-                    itertools::concat(vec![parent, vec![Node::OrAsgn]]),
-                    &node.value,
-                    input,
-                ),
+                self.search(parent.append(Node::OrAsgn), &node.recv, input),
+                self.search(parent.append(Node::OrAsgn), &node.value, input),
             ]),
 
             lib_ruby_parser::Node::Pair(node) => itertools::concat(vec![
-                self.search(
-                    itertools::concat(vec![parent.clone(), vec![Node::Pair]]),
-                    &node.key,
-                    input,
-                ),
-                self.search(
-                    itertools::concat(vec![parent, vec![Node::Pair]]),
-                    &node.value,
-                    input,
-                ),
+                self.search(parent.append(Node::Pair), &node.key, input),
+                self.search(parent.append(Node::Pair), &node.value, input),
             ]),
 
-            lib_ruby_parser::Node::Pin(node) => self.search(
-                itertools::concat(vec![parent, vec![Node::Pin]]),
-                &node.var,
-                input,
-            ),
+            lib_ruby_parser::Node::Pin(node) => {
+                self.search(parent.append(Node::Pin), &node.var, input)
+            }
 
             lib_ruby_parser::Node::Postexe(node) => itertools::concat(vec![
                 self.matcher
-                    .is_match("END")
+                    .is_match("END".to_string())
                     .then(|| {
                         input
                             .line_col_for_pos(node.expression_l.begin)
@@ -2081,7 +1380,7 @@ impl<'a, T: Matcher> Source<'a, T> {
                                 LineResult::new(
                                     pos.0,
                                     self.lines[pos.0].clone(),
-                                    itertools::concat(vec![parent.clone(), vec![Node::Postexe]]),
+                                    parent.append(Node::Postexe),
                                     pos.1,
                                     pos.1 + "END".len(),
                                 )
@@ -2092,19 +1391,13 @@ impl<'a, T: Matcher> Source<'a, T> {
                     .unwrap_or(vec![]),
                 node.body
                     .as_ref()
-                    .map(|body| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::Postexe]]),
-                            body,
-                            input,
-                        )
-                    })
+                    .map(|body| self.search(parent.append(Node::Postexe), body, input))
                     .unwrap_or(vec![]),
             ]),
 
             lib_ruby_parser::Node::Preexe(node) => itertools::concat(vec![
                 self.matcher
-                    .is_match("BEGIN")
+                    .is_match("BEGIN".to_string())
                     .then(|| {
                         input
                             .line_col_for_pos(node.expression_l.begin)
@@ -2112,7 +1405,7 @@ impl<'a, T: Matcher> Source<'a, T> {
                                 LineResult::new(
                                     pos.0,
                                     self.lines[pos.0].clone(),
-                                    itertools::concat(vec![parent.clone(), vec![Node::Preexe]]),
+                                    parent.append(Node::Preexe),
                                     pos.1,
                                     pos.1 + "BEGIN".len(),
                                 )
@@ -2123,31 +1416,19 @@ impl<'a, T: Matcher> Source<'a, T> {
                     .unwrap_or(vec![]),
                 node.body
                     .as_ref()
-                    .map(|body| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::Preexe]]),
-                            body,
-                            input,
-                        )
-                    })
+                    .map(|body| self.search(parent.append(Node::Preexe), body, input))
                     .unwrap_or(vec![]),
             ]),
 
             lib_ruby_parser::Node::Procarg0(node) => node
                 .args
                 .iter()
-                .flat_map(|arg| {
-                    self.search(
-                        itertools::concat(vec![parent.clone(), vec![Node::Procarg0]]),
-                        arg,
-                        input,
-                    )
-                })
+                .flat_map(|arg| self.search(parent.append(Node::Procarg0), arg, input))
                 .collect(),
 
             lib_ruby_parser::Node::Rational(node) => self
                 .search_node(
-                    itertools::concat(vec![parent, vec![Node::Rational]]),
+                    parent.append(Node::Rational),
                     &node.value,
                     node.expression_l,
                     input,
@@ -2158,7 +1439,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::Redo(node) => self
                 .matcher
-                .is_match("redo")
+                .is_match("redo".to_string())
                 .then(|| {
                     input
                         .line_col_for_pos(node.expression_l.begin)
@@ -2166,7 +1447,7 @@ impl<'a, T: Matcher> Source<'a, T> {
                             LineResult::new(
                                 pos.0,
                                 self.lines[pos.0].clone(),
-                                itertools::concat(vec![parent.clone(), vec![Node::Redo]]),
+                                parent.append(Node::Redo),
                                 pos.1,
                                 pos.1 + "redo".len(),
                             )
@@ -2181,7 +1462,7 @@ impl<'a, T: Matcher> Source<'a, T> {
                 .as_ref()
                 .map(|options| {
                     self.matcher
-                        .is_match(options)
+                        .is_match(options.clone())
                         .then(|| {
                             input
                                 .line_col_for_pos(node.expression_l.begin)
@@ -2189,7 +1470,7 @@ impl<'a, T: Matcher> Source<'a, T> {
                                     LineResult::new(
                                         pos.0,
                                         self.lines[pos.0].clone(),
-                                        itertools::concat(vec![parent.clone(), vec![Node::RegOpt]]),
+                                        parent.append(Node::RegOpt),
                                         pos.1,
                                         pos.1 + options.len(),
                                     )
@@ -2206,65 +1487,33 @@ impl<'a, T: Matcher> Source<'a, T> {
                 .as_ref()
                 .map(|options| {
                     itertools::concat(vec![
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::Regexp]]),
-                            options,
-                            input,
-                        ),
+                        self.search(parent.append(Node::Regexp), options, input),
                         node.parts
                             .iter()
-                            .flat_map(|arg| {
-                                self.search(
-                                    itertools::concat(vec![parent.clone(), vec![Node::Regexp]]),
-                                    arg,
-                                    input,
-                                )
-                            })
+                            .flat_map(|part| self.search(parent.append(Node::Regexp), part, input))
                             .collect(),
                     ])
                 })
                 .unwrap_or(
                     node.parts
                         .iter()
-                        .flat_map(|arg| {
-                            self.search(
-                                itertools::concat(vec![parent.clone(), vec![Node::Regexp]]),
-                                arg,
-                                input,
-                            )
-                        })
+                        .flat_map(|part| self.search(parent.append(Node::Regexp), part, input))
                         .collect(),
                 ),
 
             lib_ruby_parser::Node::Rescue(node) => itertools::concat(vec![
                 node.body
                     .as_ref()
-                    .map(|body| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::Rescue]]),
-                            body,
-                            input,
-                        )
-                    })
+                    .map(|body| self.search(parent.append(Node::Rescue), body, input))
                     .unwrap_or(vec![]),
                 node.else_
                     .as_ref()
-                    .map(|else_| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::Rescue]]),
-                            else_,
-                            input,
-                        )
-                    })
+                    .map(|else_| self.search(parent.append(Node::Rescue), else_, input))
                     .unwrap_or(vec![]),
                 node.rescue_bodies
                     .iter()
-                    .flat_map(|statement| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::Rescue]]),
-                            statement,
-                            input,
-                        )
+                    .flat_map(|rescue_body| {
+                        self.search(parent.append(Node::Rescue), rescue_body, input)
                     })
                     .collect(),
             ]),
@@ -2272,33 +1521,15 @@ impl<'a, T: Matcher> Source<'a, T> {
             lib_ruby_parser::Node::RescueBody(node) => itertools::concat(vec![
                 node.exc_list
                     .as_ref()
-                    .map(|exc_list| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::RescueBody]]),
-                            exc_list,
-                            input,
-                        )
-                    })
+                    .map(|exc_list| self.search(parent.append(Node::RescueBody), exc_list, input))
                     .unwrap_or(vec![]),
                 node.exc_var
                     .as_ref()
-                    .map(|exc_var| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::RescueBody]]),
-                            exc_var,
-                            input,
-                        )
-                    })
+                    .map(|exc_var| self.search(parent.append(Node::RescueBody), exc_var, input))
                     .unwrap_or(vec![]),
                 node.body
                     .as_ref()
-                    .map(|body| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::RescueBody]]),
-                            body,
-                            input,
-                        )
-                    })
+                    .map(|body| self.search(parent.append(Node::RescueBody), body, input))
                     .unwrap_or(vec![]),
             ]),
 
@@ -2307,7 +1538,7 @@ impl<'a, T: Matcher> Source<'a, T> {
                 .as_ref()
                 .map(|s| {
                     self.matcher
-                        .is_match(s)
+                        .is_match(s.to_string())
                         .then(|| {
                             input
                                 .line_col_for_pos(node.expression_l.begin)
@@ -2315,10 +1546,7 @@ impl<'a, T: Matcher> Source<'a, T> {
                                     LineResult::new(
                                         pos.0,
                                         self.lines[pos.0].clone(),
-                                        itertools::concat(vec![
-                                            parent.clone(),
-                                            vec![Node::Restarg],
-                                        ]),
+                                        parent.append(Node::Restarg),
                                         pos.1,
                                         pos.1 + s.len(),
                                     )
@@ -2332,7 +1560,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::Retry(node) => self
                 .matcher
-                .is_match("retry")
+                .is_match("retry".to_string())
                 .then(|| {
                     input
                         .line_col_for_pos(node.expression_l.begin)
@@ -2340,7 +1568,7 @@ impl<'a, T: Matcher> Source<'a, T> {
                             LineResult::new(
                                 pos.0,
                                 self.lines[pos.0].clone(),
-                                itertools::concat(vec![parent.clone(), vec![Node::Retry]]),
+                                parent.append(Node::Retry),
                                 pos.1,
                                 pos.1 + "retry".len(),
                             )
@@ -2352,7 +1580,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::Return(node) => itertools::concat(node.args.iter().map(|arg| {
                 self.search(
-                    itertools::concat(vec![parent.clone(), vec![Node::Return]]),
+                    parent.merge(Nodes::new(vec![Node::Return, Node::Arg])),
                     arg,
                     input,
                 )
@@ -2363,39 +1591,21 @@ impl<'a, T: Matcher> Source<'a, T> {
                 .as_ref()
                 .map(|body| {
                     itertools::concat(vec![
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::SClass]]),
-                            &node.expr,
-                            input,
-                        ),
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::SClass]]),
-                            body,
-                            input,
-                        ),
+                        self.search(parent.append(Node::SClass), &node.expr, input),
+                        self.search(parent.append(Node::SClass), body, input),
                     ])
                 })
-                .unwrap_or(self.search(
-                    itertools::concat(vec![parent, vec![Node::SClass]]),
-                    &node.expr,
-                    input,
-                )),
+                .unwrap_or(self.search(parent.append(Node::SClass), &node.expr, input)),
 
             lib_ruby_parser::Node::Splat(node) => node
                 .value
                 .as_ref()
-                .map(|value| {
-                    self.search(
-                        itertools::concat(vec![parent.clone(), vec![Node::Splat]]),
-                        value,
-                        input,
-                    )
-                })
+                .map(|value| self.search(parent.append(Node::Splat), value, input))
                 .unwrap_or(vec![]),
 
             lib_ruby_parser::Node::Self_(node) => self
                 .matcher
-                .is_match("self")
+                .is_match("self".to_string())
                 .then(|| {
                     input
                         .line_col_for_pos(node.expression_l.begin)
@@ -2403,7 +1613,7 @@ impl<'a, T: Matcher> Source<'a, T> {
                             LineResult::new(
                                 pos.0,
                                 self.lines[pos.0].clone(),
-                                itertools::concat(vec![parent.clone(), vec![Node::Self_]]),
+                                parent.append(Node::Self_),
                                 pos.1,
                                 pos.1 + "self".len(),
                             )
@@ -2413,65 +1623,29 @@ impl<'a, T: Matcher> Source<'a, T> {
                 })
                 .unwrap_or(vec![]),
 
-            lib_ruby_parser::Node::Send(node) => self
-                .search_node(
-                    itertools::concat(vec![parent.clone(), vec![Node::Send]]),
+            lib_ruby_parser::Node::Send(node) => itertools::concat(vec![
+                self.search_node(
+                    parent.append(Node::Send),
                     &node.method_name,
                     node.selector_l.unwrap_or(node.expression_l),
                     input,
                     0,
                 )
-                .map(|r| {
-                    itertools::concat(vec![
-                        node.recv
-                            .as_ref()
-                            .map(|node| {
-                                self.search(
-                                    itertools::concat(vec![parent.clone(), vec![Node::Send]]),
-                                    node,
-                                    input,
-                                )
-                            })
-                            .unwrap_or(vec![]),
-                        vec![r],
-                        node.args
-                            .iter()
-                            .flat_map(|statement| {
-                                self.search(
-                                    itertools::concat(vec![parent.clone(), vec![Node::Send]]),
-                                    statement,
-                                    input,
-                                )
-                            })
-                            .collect(),
-                    ])
-                })
-                .unwrap_or(itertools::concat(vec![
-                    node.recv
-                        .as_ref()
-                        .map(|node| {
-                            self.search(
-                                itertools::concat(vec![parent.clone(), vec![Node::Send]]),
-                                node,
-                                input,
-                            )
-                        })
-                        .unwrap_or(vec![]),
-                    node.args
-                        .iter()
-                        .flat_map(|statement| {
-                            self.search(
-                                itertools::concat(vec![parent.clone(), vec![Node::Send]]),
-                                statement,
-                                input,
-                            )
-                        })
-                        .collect(),
-                ])),
+                .map(|r| vec![r])
+                .unwrap_or(vec![]),
+                node.recv
+                    .as_ref()
+                    .map(|node| self.search(parent.append(Node::Send), node, input))
+                    .unwrap_or(vec![]),
+                node.args
+                    .iter()
+                    .flat_map(|arg| self.search(parent.append(Node::Send), arg, input))
+                    .collect(),
+            ]),
 
             lib_ruby_parser::Node::Shadowarg(node) => self
                 .matcher
-                .is_match(&node.name)
+                .is_match(node.name.clone())
                 .then(|| {
                     input
                         .line_col_for_pos(node.expression_l.begin)
@@ -2479,7 +1653,7 @@ impl<'a, T: Matcher> Source<'a, T> {
                             LineResult::new(
                                 pos.0,
                                 self.lines[pos.0].clone(),
-                                itertools::concat(vec![parent.clone(), vec![Node::Shadowarg]]),
+                                parent.append(Node::Shadowarg),
                                 pos.1,
                                 pos.1 + node.name.len(),
                             )
@@ -2491,8 +1665,10 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::Str(node) => self
                 .search_node(
-                    itertools::concat(vec![parent, vec![Node::Str]]),
-                    &node.value.to_string().unwrap_or("".to_string()),
+                    parent.append(Node::Str),
+                    String::from_utf8(node.value.raw.clone())
+                        .unwrap_or("".to_string())
+                        .as_str(),
                     node.expression_l,
                     input,
                     0,
@@ -2502,7 +1678,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::Super(node) => itertools::concat(vec![
                 self.matcher
-                    .is_match("super")
+                    .is_match("super".to_string())
                     .then(|| {
                         input
                             .line_col_for_pos(node.expression_l.begin)
@@ -2510,7 +1686,7 @@ impl<'a, T: Matcher> Source<'a, T> {
                                 LineResult::new(
                                     pos.0,
                                     self.lines[pos.0].clone(),
-                                    itertools::concat(vec![parent.clone(), vec![Node::Super]]),
+                                    parent.append(Node::Super),
                                     pos.1,
                                     pos.1 + "super".len(),
                                 )
@@ -2521,19 +1697,13 @@ impl<'a, T: Matcher> Source<'a, T> {
                     .unwrap_or(vec![]),
                 node.args
                     .iter()
-                    .flat_map(|arg| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::Args]]),
-                            arg,
-                            input,
-                        )
-                    })
+                    .flat_map(|arg| self.search(parent.append(Node::Super), arg, input))
                     .collect(),
             ]),
 
             lib_ruby_parser::Node::Sym(node) => self
                 .search_node(
-                    itertools::concat(vec![parent, vec![Node::Sym]]),
+                    parent.append(Node::Sym),
                     &node.name.to_string().unwrap_or("".to_string()),
                     node.expression_l,
                     input,
@@ -2544,7 +1714,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::True(node) => self
                 .matcher
-                .is_match("true")
+                .is_match("true".to_string())
                 .then(|| {
                     input
                         .line_col_for_pos(node.expression_l.begin)
@@ -2552,7 +1722,7 @@ impl<'a, T: Matcher> Source<'a, T> {
                             LineResult::new(
                                 pos.0,
                                 self.lines[pos.0].clone(),
-                                itertools::concat(vec![parent, vec![Node::True]]),
+                                parent.append(Node::True),
                                 pos.1,
                                 pos.1 + "true".len(),
                             )
@@ -2565,82 +1735,38 @@ impl<'a, T: Matcher> Source<'a, T> {
             lib_ruby_parser::Node::Undef(node) => node
                 .names
                 .iter()
-                .flat_map(|statement| {
-                    self.search(
-                        itertools::concat(vec![parent.clone(), vec![Node::Undef]]),
-                        statement,
-                        input,
-                    )
-                })
+                .flat_map(|name| self.search(parent.append(Node::Undef), name, input))
                 .collect(),
 
-            lib_ruby_parser::Node::UnlessGuard(node) => self.search(
-                itertools::concat(vec![parent, vec![Node::UnlessGuard]]),
-                &node.cond,
-                input,
-            ),
+            lib_ruby_parser::Node::UnlessGuard(node) => {
+                self.search(parent.append(Node::UnlessGuard), &node.cond, input)
+            }
 
             lib_ruby_parser::Node::Until(node) => match &node.body {
                 Some(body) => itertools::concat(vec![
-                    self.search(
-                        itertools::concat(vec![parent.clone(), vec![Node::Until]]),
-                        &node.cond,
-                        input,
-                    ),
-                    self.search(
-                        itertools::concat(vec![parent, vec![Node::Until]]),
-                        body,
-                        input,
-                    ),
+                    self.search(parent.append(Node::Until), &node.cond, input),
+                    self.search(parent.append(Node::Until), body, input),
                 ]),
-                _ => self.search(
-                    itertools::concat(vec![parent, vec![Node::Until]]),
-                    &node.cond,
-                    input,
-                ),
+                _ => self.search(parent.append(Node::Until), &node.cond, input),
             },
 
             lib_ruby_parser::Node::UntilPost(node) => itertools::concat(vec![
-                self.search(
-                    itertools::concat(vec![parent.clone(), vec![Node::UntilPost]]),
-                    &node.cond,
-                    input,
-                ),
-                self.search(
-                    itertools::concat(vec![parent, vec![Node::UntilPost]]),
-                    &node.body,
-                    input,
-                ),
+                self.search(parent.append(Node::UntilPost), &node.cond, input),
+                self.search(parent.append(Node::UntilPost), &node.body, input),
             ]),
 
             lib_ruby_parser::Node::When(node) => match &node.body {
                 Some(body) => itertools::concat(vec![
                     node.patterns
                         .iter()
-                        .flat_map(|arg| {
-                            self.search(
-                                itertools::concat(vec![parent.clone(), vec![Node::When]]),
-                                arg,
-                                input,
-                            )
-                        })
+                        .flat_map(|pattern| self.search(parent.append(Node::When), pattern, input))
                         .collect(),
-                    self.search(
-                        itertools::concat(vec![parent, vec![Node::When]]),
-                        body,
-                        input,
-                    ),
+                    self.search(parent.append(Node::When), body, input),
                 ]),
                 _ => node
                     .patterns
                     .iter()
-                    .flat_map(|arg| {
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::When]]),
-                            arg,
-                            input,
-                        )
-                    })
+                    .flat_map(|pattern| self.search(parent.append(Node::When), pattern, input))
                     .collect(),
             },
 
@@ -2649,68 +1775,38 @@ impl<'a, T: Matcher> Source<'a, T> {
                 .as_ref()
                 .map(|body| {
                     itertools::concat(vec![
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::While]]),
-                            &node.cond,
-                            input,
-                        ),
-                        self.search(
-                            itertools::concat(vec![parent.clone(), vec![Node::While]]),
-                            body,
-                            input,
-                        ),
+                        self.search(parent.append(Node::While), &node.cond, input),
+                        self.search(parent.append(Node::While), body, input),
                     ])
                 })
-                .unwrap_or(self.search(
-                    itertools::concat(vec![parent, vec![Node::While]]),
-                    &node.cond,
-                    input,
-                )),
+                .unwrap_or(self.search(parent.append(Node::While), &node.cond, input)),
 
             lib_ruby_parser::Node::WhilePost(node) => itertools::concat(vec![
-                self.search(
-                    itertools::concat(vec![parent.clone(), vec![Node::WhilePost]]),
-                    &node.cond,
-                    input,
-                ),
-                self.search(
-                    itertools::concat(vec![parent, vec![Node::WhilePost]]),
-                    &node.body,
-                    input,
-                ),
+                self.search(parent.append(Node::WhilePost), &node.cond, input),
+                self.search(parent.append(Node::WhilePost), &node.body, input),
             ]),
 
             lib_ruby_parser::Node::XHeredoc(node) => node
                 .parts
                 .iter()
-                .flat_map(|arg| {
-                    self.search(
-                        itertools::concat(vec![parent.clone(), vec![Node::XHeredoc]]),
-                        arg,
-                        input,
-                    )
-                })
+                .flat_map(|part| self.search(parent.append(Node::XHeredoc), part, input))
                 .collect(),
 
-            lib_ruby_parser::Node::Xstr(node) => itertools::concat(node.parts.iter().map(|arg| {
-                self.search(
-                    itertools::concat(vec![parent.clone(), vec![Node::Xstr]]),
-                    arg,
-                    input,
-                )
-            })),
+            lib_ruby_parser::Node::Xstr(node) => itertools::concat(
+                node.parts
+                    .iter()
+                    .map(|arg| self.search(parent.append(Node::Xstr), arg, input)),
+            ),
 
-            lib_ruby_parser::Node::Yield(node) => itertools::concat(node.args.iter().map(|arg| {
-                self.search(
-                    itertools::concat(vec![parent.clone(), vec![Node::Yield]]),
-                    arg,
-                    input,
-                )
-            })),
+            lib_ruby_parser::Node::Yield(node) => itertools::concat(
+                node.args
+                    .iter()
+                    .map(|arg| self.search(parent.append(Node::Yield), arg, input)),
+            ),
 
             lib_ruby_parser::Node::ZSuper(node) => self
                 .matcher
-                .is_match("super")
+                .is_match("super".to_string())
                 .then(|| {
                     input
                         .line_col_for_pos(node.expression_l.begin)
@@ -2718,7 +1814,7 @@ impl<'a, T: Matcher> Source<'a, T> {
                             LineResult::new(
                                 pos.0,
                                 self.lines[pos.0].clone(),
-                                itertools::concat(vec![parent.clone(), vec![Node::ZSuper]]),
+                                parent.append(Node::ZSuper),
                                 pos.1,
                                 pos.1 + "super".len(),
                             )
@@ -2732,29 +1828,47 @@ impl<'a, T: Matcher> Source<'a, T> {
 
     fn search_node(
         &self,
-        nodes: Vec<Node>,
+        nodes: Nodes,
         text: &str,
         loc: Loc,
         input: &DecodedInput,
         offset: usize,
     ) -> Option<LineResult> {
-        if self.matcher.is_match(text) {
-            input.line_col_for_pos(loc.begin).map(|pos| {
+        if self.matcher.is_match(text.to_string()) {
+            input.line_col_for_pos(loc.begin).map(|(row, column)| {
                 LineResult::new(
-                    pos.0,
-                    self.lines[pos.0].clone(),
+                    row,
+                    self.lines[row].clone(),
                     nodes,
-                    pos.1,
-                    if pos.1 + text.len() + offset < self.lines[pos.0].clone().len() {
-                        pos.1 + text.len() + offset
+                    column,
+                    if column + text.len() + offset < self.lines[row].clone().len() {
+                        column + text.len() + offset
                     } else {
-                        self.lines[pos.0].clone().len()
+                        self.lines[row].clone().len()
                     },
                 )
             })
         } else {
             None
         }
+    }
+
+    fn error_messages(
+        diagnostics: &Vec<Diagnostic>,
+        input: &DecodedInput,
+    ) -> Vec<((usize, usize), bool, String)> {
+        diagnostics
+            .iter()
+            .map(|d| {
+                let loc = input.line_col_for_pos(d.loc.begin).unwrap_or((0, 0));
+
+                if d.is_warning() {
+                    (loc, true, format!("{}", d.render_message().yellow()))
+                } else {
+                    (loc, false, format!("{}", d.render_message().red()))
+                }
+            })
+            .collect::<Vec<((usize, usize), bool, String)>>()
     }
 }
 
@@ -2766,184 +1880,216 @@ mod tests {
 
     #[rstest]
     // class
-    #[case("Class", None, LineResult {line: "class Class < vvv; end".to_string(), row: 0, column_start: 6, column_end: 11, nodes: vec![Node::Class]})]
-    #[case("Class2", None, LineResult {line: "class Class < vvv; class Class2; end; end".to_string(), row: 0, column_start: 25, column_end: 31, nodes: vec![Node::Class, Node::Class]})]
-    #[case("SingletonClass", None, LineResult {line: "class << SingletonClass; def test; end end".to_string(), row: 0, column_start: 9, column_end: 23, nodes: vec![Node::SClass]})]
+    #[case("Class", None, LineResult {line: "class Class < vvv; end".to_string(), row: 0, column_start: 6, column_end: 11, nodes: Nodes::new(vec![Node::Class])})]
+    #[case("Class2", None, LineResult {line: "class Class < vvv; class Class2; end; end".to_string(), row: 0, column_start: 25, column_end: 31, nodes: Nodes::new(vec![Node::Class, Node::Class])})]
+    #[case("SingletonClass", None, LineResult {line: "class << SingletonClass; def test; end end".to_string(), row: 0, column_start: 9, column_end: 23, nodes: Nodes::new(vec![Node::SClass])})]
     // module
-    #[case("Module", None, LineResult {line: "module Module; def test; end; end".to_string(), row: 0, column_start: 7, column_end: 13, nodes: vec![Node::Module]})]
+    #[case("Module", None, LineResult {line: "module Module; def test; end; end".to_string(), row: 0, column_start: 7, column_end: 13, nodes: Nodes::new(vec![Node::Module])})]
     // def
-    #[case("def_test", None, LineResult {line: "def def_test; end".to_string(), row: 0, column_start: 4, column_end: 12, nodes: vec![Node::Def]})]
-    #[case("def_test", None, LineResult {line: "def def_test; puts 'bar'; end".to_string(), row: 0, column_start: 4, column_end: 12, nodes: vec![Node::Def]})]
-    #[case("rest_test", None, LineResult {line: "def m(*rest_test); end".to_string(), row: 0, column_start: 6, column_end: 15, nodes: vec![Node::Def, Node::Arg, Node::Restarg]})]
-    #[case("undef_test", None, LineResult {line: "undef undef_test, row: :test".to_string(), row: 0, column_start : 6, column_end : 17, nodes: vec![Node::Undef, Node::Sym]})]
-    #[case("foo", None, LineResult {line: "def x.foo(args); puts 'v'; end".to_string(), row: 0, column_start: 6, column_end: 9, nodes: vec![Node::Defs]})]
-    #[case("foo", None, LineResult {line: "def m(**foo); end".to_string(), row: 0, column_start: 6, column_end: 9, nodes: vec![Node::Def, Node::Arg, Node::Kwrestarg]})]
-    #[case("foo", None, LineResult {line: "def m(foo: 1); end".to_string(), row: 0, column_start: 6, column_end: 9, nodes: vec![Node::Def, Node::Arg, Node::Kwoptarg]})]
-    #[case("1", None, LineResult {line: "def m(foo: 1); end".to_string(), row: 0, column_start: 11, column_end: 12, nodes: vec![Node::Def, Node::Arg, Node::Kwoptarg, Node::Int]})]
-    #[case("nil", None, LineResult {line: "def m(**nil); end".to_string(), row: 0, column_start: 6, column_end: 11, nodes: vec![Node::Def, Node::Arg, Node::Kwnilarg]})]
-    #[case("bar", None, LineResult {line: "def foo(bar:); end".to_string(), row: 0, column_start: 8, column_end: 11, nodes: vec![Node::Def, Node::Arg, Node::Kwarg]})]
-    #[case("...", None, LineResult {line: "def m(...); end".to_string(), row: 0, column_start: 6, column_end: 9, nodes: vec![Node::Def, Node::Arg, Node::ForwardArg]})]
+    #[case("def_test", None, LineResult {line: "def def_test; end".to_string(), row: 0, column_start: 4, column_end: 12, nodes: Nodes::new(vec![Node::Def])})]
+    #[case("def_test", None, LineResult {line: "def def_test; puts 'bar'; end".to_string(), row: 0, column_start: 4, column_end: 12, nodes: Nodes::new(vec![Node::Def])})]
+    #[case("rest_test", None, LineResult {line: "def m(*rest_test); end".to_string(), row: 0, column_start: 6, column_end: 15, nodes: Nodes::new(vec![Node::Def, Node::Args, Node::Restarg])})]
+    #[case("undef_test", None, LineResult {line: "undef undef_test, row: :test".to_string(), row: 0, column_start : 6, column_end : 17, nodes: Nodes::new(vec![Node::Undef, Node::Sym])})]
+    #[case("foo", None, LineResult {line: "def x.foo(args); puts 'v'; end".to_string(), row: 0, column_start: 6, column_end: 9, nodes: Nodes::new(vec![Node::Defs])})]
+    #[case("foo", None, LineResult {line: "def m(**foo); end".to_string(), row: 0, column_start: 6, column_end: 9, nodes: Nodes::new(vec![Node::Def, Node::Args, Node::Kwrestarg])})]
+    #[case("foo", None, LineResult {line: "def m(foo: 1); end".to_string(), row: 0, column_start: 6, column_end: 9, nodes: Nodes::new(vec![Node::Def, Node::Args, Node::Kwoptarg])})]
+    #[case("1", None, LineResult {line: "def m(foo: 1); end".to_string(), row: 0, column_start: 11, column_end: 12, nodes: Nodes::new(vec![Node::Def, Node::Args, Node::Kwoptarg, Node::Int])})]
+    #[case("nil", None, LineResult {line: "def m(**nil); end".to_string(), row: 0, column_start: 6, column_end: 11, nodes: Nodes::new(vec![Node::Def, Node::Args, Node::Kwnilarg])})]
+    #[case("bar", None, LineResult {line: "def foo(bar:); end".to_string(), row: 0, column_start: 8, column_end: 11, nodes: Nodes::new(vec![Node::Def, Node::Args, Node::Kwarg])})]
+    #[case("...", None, LineResult {line: "def m(...); end".to_string(), row: 0, column_start: 6, column_end: 9, nodes: Nodes::new(vec![Node::Def, Node::Args, Node::ForwardArg])})]
     // sym
-    #[case("sym", None, LineResult {line: "var.try(:sym)".to_string(), row: 0, column_start: 8, column_end: 12, nodes: vec![Node::Send, Node::Sym]})]
-    #[case("foo", None, LineResult {line: ":\"#{foo}\"".to_string(), row: 0, column_start: 4, column_end: 7, nodes: vec![Node::Dsym, Node::Begin, Node::Send]})]
+    #[case("sym", None, LineResult {line: "var.try(:sym)".to_string(), row: 0, column_start: 8, column_end: 12, nodes: Nodes::new(vec![Node::Send, Node::Sym])})]
+    #[case("foo", None, LineResult {line: ":\"#{foo}\"".to_string(), row: 0, column_start: 4, column_end: 7, nodes: Nodes::new(vec![Node::Dsym, Node::Begin, Node::Send])})]
     // alias
-    #[case("alias_test", None, LineResult {line: "alias :alias_test :new_alias".to_string(), row: 0, column_start: 6, column_end: 17, nodes: vec![Node::Alias, Node::Sym]})]
+    #[case("alias_test", None, LineResult {line: "alias :alias_test :new_alias".to_string(), row: 0, column_start: 6, column_end: 17, nodes: Nodes::new(vec![Node::Alias, Node::Sym])})]
     // local var
-    #[case("local_var_test", None, LineResult {line: "local_var_test = 2 + 2".to_string(), row: 0, column_start: 0, column_end: 14, nodes: vec![Node::Lvasgn]})]
+    #[case("local_var_test", None, LineResult {line: "local_var_test = 2 + 2".to_string(), row: 0, column_start: 0, column_end: 14, nodes: Nodes::new(vec![Node::Lvasgn])})]
     // send
-    #[case("send_test", None, LineResult {line: "var.send_test()".to_string(), row: 0, column_start: 4, column_end: 13, nodes: vec![Node::Send]})]
-    #[case("var", None, LineResult {line: "var.send_test()".to_string(), row: 0, column_start: 0, column_end: 3, nodes: vec![Node::Send, Node::Send]})]
-    #[case("local_var_test", None, LineResult {line: "local_var_test = 2 + 2".to_string(), row: 0, column_start: 0, column_end: 14, nodes: vec![Node::Lvasgn]})]
-    #[case("op_assign_test", None, LineResult {line: "op_assign_test += 1".to_string(), row: 0, column_start: 0, column_end: 14, nodes: vec![Node::OpAsgn, Node::Lvasgn]})]
-    #[case("or_assign_test", None, LineResult {line: "or_assign_test ||= 1".to_string(), row: 0, column_start: 0, column_end: 14, nodes: vec![Node::OrAsgn, Node::Lvasgn]})]
-    #[case("mass_assign_test", None, LineResult {line: "mass_assign_test, test = 1, 2".to_string(), row: 0, column_start: 0, column_end: 16, nodes: vec![Node::Masgn, Node::Mlhs, Node::Lvasgn]})]
+    #[case("send_test", None, LineResult {line: "var.send_test()".to_string(), row: 0, column_start: 4, column_end: 13, nodes: Nodes::new(vec![Node::Send])})]
+    #[case("var", None, LineResult {line: "var.send_test()".to_string(), row: 0, column_start: 0, column_end: 3, nodes: Nodes::new(vec![Node::Send, Node::Send])})]
+    #[case("local_var_test", None, LineResult {line: "local_var_test = 2 + 2".to_string(), row: 0, column_start: 0, column_end: 14, nodes: Nodes::new(vec![Node::Lvasgn])})]
+    #[case("op_assign_test", None, LineResult {line: "op_assign_test += 1".to_string(), row: 0, column_start: 0, column_end: 14, nodes: Nodes::new(vec![Node::OpAsgn, Node::Lvasgn])})]
+    #[case("or_assign_test", None, LineResult {line: "or_assign_test ||= 1".to_string(), row: 0, column_start: 0, column_end: 14, nodes: Nodes::new(vec![Node::OrAsgn, Node::Lvasgn])})]
+    #[case("mass_assign_test", None, LineResult {line: "mass_assign_test, test = 1, 2".to_string(), row: 0, column_start: 0, column_end: 16, nodes: Nodes::new(vec![Node::Masgn, Node::Mlhs, Node::Lvasgn])})]
     // while
-    #[case("while_test",  None, LineResult {line: "while while_test do; test; end".to_string(), row: 0, column_start: 6, column_end: 16, nodes: vec![Node::While, Node::Send]})]
-    #[case("while_post_test", None, LineResult {line: "begin while_post_test; end while test".to_string(), row: 0, column_start: 6, column_end: 21, nodes: vec![Node::WhilePost, Node::KwBegin, Node::Send]})]
+    #[case("while_test",  None, LineResult {line: "while while_test do; test; end".to_string(), row: 0, column_start: 6, column_end: 16, nodes: Nodes::new(vec![Node::While, Node::Send])})]
+    #[case("while_post_test", None, LineResult {line: "begin while_post_test; end while test".to_string(), row: 0, column_start: 6, column_end: 21, nodes: Nodes::new(vec![Node::WhilePost, Node::KwBegin, Node::Send])})]
     // until
-    #[case("until_test", None, LineResult {line: "until until_test do; test; end".to_string(), row: 0, column_start: 6, column_end: 16, nodes: vec![Node::Until, Node::Send]})]
-    #[case("bar", None, LineResult {line: "until foo do; bar; end".to_string(), row: 0, column_start: 14, column_end: 17, nodes: vec![Node::Until, Node::Send]})]
-    #[case("unless_test", None, LineResult {line: "puts 'test' unless unless_test".to_string(), row: 0, column_start: 19, column_end: 30, nodes: vec![Node::IfMod, Node::Send]})]
-    #[case("rescue_test", None, LineResult {line: "begin; test; rescue StandardError => rescue_test; true_test; else; else_test; end".to_string(), row: 0, column_start: 37, column_end: 48, nodes: vec![Node::KwBegin, Node::Rescue, Node::RescueBody, Node::Lvasgn]})]
-    #[case("bar", None, LineResult {line: "foo(**bar)".to_string(), row: 0, column_start: 6, column_end: 9, nodes: vec![Node::Send, Node::Kwargs, Node::Kwsplat, Node::Send]})]
-    #[case("regex_test", None, LineResult {line: "/regex_test/".to_string(), row: 0, column_start: 1, column_end: 11, nodes: vec![Node::Regexp, Node::Str]})]
-    #[case("pin_test", None, LineResult {line: "pin_test = 1; case foo; in ^pin_test; end".to_string(), row: 0, column_start: 28, column_end: 36, nodes: vec![Node::Begin, Node::CaseMatch, Node::InPattern, Node::Pin, Node::Lvar]})]
-    #[case("global_test", None, LineResult {line: "$global_test = 1000".to_string(), row: 0, column_start: 0, column_end: 12, nodes: vec![Node::Gvasgn]})]
+    #[case("until_test", None, LineResult {line: "until until_test do; test; end".to_string(), row: 0, column_start: 6, column_end: 16, nodes: Nodes::new(vec![Node::Until, Node::Send])})]
+    #[case("bar", None, LineResult {line: "until foo do; bar; end".to_string(), row: 0, column_start: 14, column_end: 17, nodes: Nodes::new(vec![Node::Until, Node::Send])})]
+    #[case("unless_test", None, LineResult {line: "puts 'test' unless unless_test".to_string(), row: 0, column_start: 19, column_end: 30, nodes: Nodes::new(vec![Node::IfMod, Node::Send])})]
+    #[case("rescue_test", None, LineResult {line: "begin; test; rescue StandardError => rescue_test; true_test; else; else_test; end".to_string(), row: 0, column_start: 37, column_end: 48, nodes: Nodes::new(vec![Node::KwBegin, Node::Rescue, Node::RescueBody, Node::Lvasgn])})]
+    #[case("bar", None, LineResult {line: "foo(**bar)".to_string(), row: 0, column_start: 6, column_end: 9, nodes: Nodes::new(vec![Node::Send, Node::Kwargs, Node::Kwsplat, Node::Send])})]
+    #[case("regex_test", None, LineResult {line: "/regex_test/".to_string(), row: 0, column_start: 1, column_end: 11, nodes: Nodes::new(vec![Node::Regexp, Node::Str])})]
+    #[case("pin_test", None, LineResult {line: "pin_test = 1; case foo; in ^pin_test; end".to_string(),
+                                         row: 0,
+                                         column_start: 28,
+                                         column_end: 36,
+                                         nodes: Nodes::new(vec![Node::Begin,
+                                                                Node::CaseMatch,
+                                                                Node::InPattern,
+                                                                Node::Pin,
+                                                                Node::Lvar])})]
+    #[case("global_test", None, LineResult {line: "$global_test = 1000".to_string(), row: 0, column_start: 0, column_end: 12, nodes: Nodes::new(vec![Node::Gvasgn])})]
     // const
-    #[case("CONST", None, LineResult {line: "CONST = 1".to_string(), row: 0, column_start: 0, column_end: 5, nodes: vec![Node::Casgn]})]
-    #[case("VAR", None, LineResult {line: "VAR::B = 1".to_string(), row: 0, column_start: 0, column_end: 3, nodes: vec![Node::Casgn]})]
-    #[case("1", None, LineResult {line: "VAR::B = 1".to_string(), row: 0, column_start: 9, column_end: 10, nodes: vec![Node::Casgn, Node::Int]})]
+    #[case("CONST", None, LineResult {line: "CONST = 1".to_string(), row: 0, column_start: 0, column_end: 5, nodes: Nodes::new(vec![Node::Casgn])})]
+    #[case("VAR", None, LineResult {line: "VAR::B = 1".to_string(), row: 0, column_start: 0, column_end: 3, nodes: Nodes::new(vec![Node::Casgn])})]
+    #[case("1", None, LineResult {line: "VAR::B = 1".to_string(), row: 0, column_start: 9, column_end: 10, nodes: Nodes::new(vec![Node::Casgn, Node::Int])})]
     // instance var
-    #[case("foo", None, LineResult {line: "@foo".to_string(), row: 0, column_start: 0, column_end: 4, nodes: vec![Node::Ivar]})]
-    #[case("foo", None, LineResult {line: "@foo = 1".to_string(), row: 0, column_start: 0, column_end: 4, nodes: vec![Node::Ivasgn]})]
-    #[case("1", None, LineResult {line: "@foo = 1".to_string(), row: 0, column_start: 7, column_end: 8, nodes: vec![Node::Ivasgn, Node::Int]})]
+    #[case("foo", None, LineResult {line: "@foo".to_string(), row: 0, column_start: 0, column_end: 4, nodes: Nodes::new(vec![Node::Ivar])})]
+    #[case("foo", None, LineResult {line: "@foo = 1".to_string(), row: 0, column_start: 0, column_end: 4, nodes: Nodes::new(vec![Node::Ivasgn])})]
+    #[case("1", None, LineResult {line: "@foo = 1".to_string(), row: 0, column_start: 7, column_end: 8, nodes: Nodes::new(vec![Node::Ivasgn, Node::Int])})]
     // if
-    #[case("foo", None, LineResult {line: "if foo; bar; end".to_string(), row: 0, column_start: 3, column_end: 6, nodes: vec![Node::If, Node::Send]})]
-    #[case("bar", None, LineResult {line: "if foo; else bar; end".to_string(), row: 0, column_start: 13, column_end: 16, nodes: vec![Node::If, Node::Send]})]
-    #[case("if_test", None, LineResult {line: "if if_test...bar_test; end".to_string(), row: 0, column_start: 3, column_end: 10, nodes: vec![Node::If, Node::EFlipFlop, Node::Send]})]
-    #[case("test_cond", None, LineResult {line: "test_cond ? test_if_true : test_if_false".to_string(), row: 0, column_start: 0, column_end: 9, nodes: vec![Node::IfTernary, Node::Send]})]
-    #[case("foo", None, LineResult {line: "if /foo/; end".to_string(), row: 0, column_start: 4, column_end: 7, nodes: vec![Node::If, Node::MatchCurrentLine, Node::Regexp, Node::Str]})]
-    #[case("bar", None, LineResult {line: "case foo; in pattern if bar; end".to_string(), row: 0, column_start: 24, column_end: 27, nodes: vec![Node::CaseMatch, Node::InPattern, Node::IfGuard, Node::Send]})]
+    #[case("foo", None, LineResult {line: "if foo; bar; end".to_string(), row: 0, column_start: 3, column_end: 6, nodes: Nodes::new(vec![Node::If, Node::Send])})]
+    #[case("bar", None, LineResult {line: "if foo; else bar; end".to_string(), row: 0, column_start: 13, column_end: 16, nodes: Nodes::new(vec![Node::If, Node::Send])})]
+    #[case("if_test", None, LineResult {line: "if if_test...bar_test; end".to_string(), row: 0, column_start: 3, column_end: 10, nodes: Nodes::new(vec![Node::If, Node::EFlipFlop, Node::Send])})]
+    #[case("test_cond", None, LineResult {line: "test_cond ? test_if_true : test_if_false".to_string(), row: 0, column_start: 0, column_end: 9, nodes: Nodes::new(vec![Node::IfTernary, Node::Send])})]
+    #[case("foo", None, LineResult {line: "if /foo/; end".to_string(), row: 0, column_start: 4, column_end: 7, nodes: Nodes::new(vec![Node::If, Node::MatchCurrentLine, Node::Regexp, Node::Str])})]
+    #[case("bar", None, LineResult {line: "case foo; in pattern if bar; end".to_string(), row: 0, column_start: 24, column_end: 27, nodes: Nodes::new(vec![Node::CaseMatch, Node::InPattern, Node::IfGuard, Node::Send])})]
     // index
-    #[case("foo", None, LineResult {line: "foo[1, row:2, column_start:3]".to_string(), row: 0, column_start: 0, column_end: 3, nodes: vec![Node::Index, Node::Send]})]
-    #[case("foo", None, LineResult {line: "foo[1, row: 2, column_start: 3] = bar".to_string(), row: 0, column_start: 0, column_end: 3, nodes: vec![Node::IndexAsgn, Node::Send]})]
+    #[case("foo", None, LineResult {line: "foo[1, row:2, column_start:3]".to_string(), row: 0, column_start: 0, column_end: 3, nodes: Nodes::new(vec![Node::Index, Node::Send])})]
+    #[case("foo", None, LineResult {line: "foo[1, row: 2, column_start: 3] = bar".to_string(), row: 0, column_start: 0, column_end: 3, nodes: Nodes::new(vec![Node::IndexAsgn, Node::Send])})]
     // hash
-    #[case("hash_test", None, LineResult {line: "test = { hash_test: 42 }".to_string(), row: 0, column_start: 9, column_end: 19, nodes: vec![Node::Lvasgn, Node::Hash, Node::Pair, Node::Sym]})]
+    #[case("hash_test", None, LineResult {line: "test = { hash_test: 42 }".to_string(), row: 0, column_start: 9, column_end: 19, nodes: Nodes::new(vec![Node::Lvasgn, Node::Hash, Node::Pair, Node::Sym])})]
     // class var
-    #[case("foo", None, LineResult {line: "@@foo".to_string(), row: 0, column_start: 0, column_end: 5, nodes: vec![Node::Cvar]})]
-    #[case("foo", None, LineResult {line: "@@foo = 1".to_string(), row: 0, column_start: 0, column_end: 5, nodes: vec![Node::Cvasgn]})]
-    #[case("1", None, LineResult {line: "@@foo = 1".to_string(), row: 0, column_start: 8, column_end: 9, nodes: vec![Node::Cvasgn, Node::Int]})]
+    #[case("foo", None, LineResult {line: "@@foo".to_string(), row: 0, column_start: 0, column_end: 5, nodes: Nodes::new(vec![Node::Cvar])})]
+    #[case("foo", None, LineResult {line: "@@foo = 1".to_string(), row: 0, column_start: 0, column_end: 5, nodes: Nodes::new(vec![Node::Cvasgn])})]
+    #[case("1", None, LineResult {line: "@@foo = 1".to_string(), row: 0, column_start: 8, column_end: 9, nodes: Nodes::new(vec![Node::Cvasgn, Node::Int])})]
     // global var
-    #[case("foo", None, LineResult {line: "$foo".to_string(), row: 0, column_start: 0, column_end: 4, nodes: vec![Node::Gvar]})]
-    #[case("foo", None, LineResult {line: "$foo = 1".to_string(), row: 0, column_start: 0, column_end: 4, nodes: vec![Node::Gvasgn]})]
-    #[case("1", None, LineResult {line: "$foo = 1".to_string(), row: 0, column_start: 7, column_end: 8, nodes: vec![Node::Gvasgn, Node::Int]})]
+    #[case("foo", None, LineResult {line: "$foo".to_string(), row: 0, column_start: 0, column_end: 4, nodes: Nodes::new(vec![Node::Gvar])})]
+    #[case("foo", None, LineResult {line: "$foo = 1".to_string(), row: 0, column_start: 0, column_end: 4, nodes: Nodes::new(vec![Node::Gvasgn])})]
+    #[case("1", None, LineResult {line: "$foo = 1".to_string(), row: 0, column_start: 7, column_end: 8, nodes: Nodes::new(vec![Node::Gvasgn, Node::Int])})]
     // case
-    #[case("case_test", None, LineResult {line: "case case_test; when test; end".to_string(), row: 0, column_start: 5, column_end: 14, nodes: vec![Node::Case, Node::Send]})]
-    #[case("when_test", None, LineResult {line: "case test; when when_test; end".to_string(), row: 0, column_start: 16, column_end: 25, nodes: vec![Node::Case, Node::When, Node::Send]})]
-    #[case("case_in_test", None, LineResult {line: "case foo; in *case_in_test; puts 'v' end".to_string(), row: 0, column_start: 14, column_end: 26, nodes: vec![Node::CaseMatch, Node::InPattern, Node::ArrayPattern, Node::MatchRest, Node::MatchVar]})]
-    #[case("else_test", None, LineResult {line: "case 1; when 1; v; else else_test; end".to_string(), row: 0, column_start: 24, column_end: 33, nodes: vec![Node::Case, Node::Send]})]
-    #[case("else_match_test", None, LineResult {line: "case 1; in 2; else else_match_test; end".to_string(), row: 0, column_start: 19, column_end: 34, nodes: vec![Node::CaseMatch, Node::Send]})]
-    #[case("Foo", None, LineResult {line: "case 1; in Foo(42); end".to_string(), row: 0, column_start: 11, column_end: 14, nodes: vec![Node::CaseMatch, Node::InPattern, Node::ConstPattern]})]
-    #[case("bar", None, LineResult {line: "case foo; in [*x, 1 => bar, *y]; end".to_string(), row: 0, column_start: 23, column_end: 26, nodes: vec![Node::CaseMatch, Node::InPattern, Node::FindPattern, Node::MatchAs, Node::MatchVar]})]
-    #[case("1", None, LineResult {line: "case foo; in [*x, 1 => bar, *y]; end".to_string(), row: 0, column_start: 18, column_end: 19, nodes: vec![Node::CaseMatch, Node::InPattern, Node::FindPattern, Node::MatchAs, Node::Int]})]
+    #[case("case_test", None, LineResult {line: "case case_test; when test; end".to_string(), row: 0, column_start: 5, column_end: 14, nodes: Nodes::new(vec![Node::Case, Node::Send])})]
+    #[case("when_test", None, LineResult {line: "case test; when when_test; end".to_string(), row: 0, column_start: 16, column_end: 25, nodes: Nodes::new(vec![Node::Case, Node::When, Node::Send])})]
+    #[case("case_in_test", None, LineResult {line: "case foo; in *case_in_test; puts 'v' end".to_string(),
+                                             row: 0,
+                                             column_start: 14,
+                                             column_end: 26,
+                                             nodes: Nodes::new(vec![Node::CaseMatch,
+                                                                    Node::InPattern,
+                                                                    Node::ArrayPattern,
+                                                                    Node::MatchRest,
+                                                                    Node::MatchVar])})]
+    #[case("else_test", None, LineResult {line: "case 1; when 1; v; else else_test; end".to_string(), row: 0, column_start: 24, column_end: 33, nodes: Nodes::new(vec![Node::Case, Node::Send])})]
+    #[case("else_match_test", None, LineResult {line: "case 1; in 2; else else_match_test; end".to_string(), row: 0, column_start: 19, column_end: 34, nodes: Nodes::new(vec![Node::CaseMatch, Node::Send])})]
+    #[case("Foo", None, LineResult {line: "case 1; in Foo(42); end".to_string(), row: 0, column_start: 11, column_end: 14, nodes: Nodes::new(vec![Node::CaseMatch, Node::InPattern, Node::ConstPattern])})]
+    #[case("bar", None, LineResult {line: "case foo; in [*x, 1 => bar, *y]; end".to_string(),
+                                    row: 0,
+                                    column_start: 23,
+                                    column_end: 26,
+                                    nodes: Nodes::new(vec![Node::CaseMatch,
+                                                           Node::InPattern,
+                                                           Node::FindPattern,
+                                                           Node::MatchAs,
+                                                           Node::MatchVar])})]
+    #[case("1", None, LineResult {line: "case foo; in [*x, 1 => bar, *y]; end".to_string(),
+                                  row: 0,
+                                  column_start: 18,
+                                  column_end: 19,
+                                  nodes: Nodes::new(vec![Node::CaseMatch,
+                                                         Node::InPattern,
+                                                         Node::FindPattern,
+                                                         Node::MatchAs,
+                                                         Node::Int])})]
     // proc
-    #[case("proc_test", None, LineResult {line: "proc_test = ->(word) { puts word }".to_string(), row: 0, column_start: 0, column_end: 9, nodes: vec![Node::Lvasgn]})]
-    #[case("->", None, LineResult {line: "proc_test = ->(word) { puts word }".to_string(), row: 0, column_start: 12, column_end: 14, nodes: vec![Node::Lvasgn, Node::Block, Node::Lambda]})]
+    #[case("proc_test", None, LineResult {line: "proc_test = ->(word) { puts word }".to_string(), row: 0, column_start: 0, column_end: 9, nodes: Nodes::new(vec![Node::Lvasgn])})]
+    #[case("->", None, LineResult {line: "proc_test = ->(word) { puts word }".to_string(), row: 0, column_start: 12, column_end: 14, nodes: Nodes::new(vec![Node::Lvasgn, Node::Block, Node::Lambda])})]
     // int
-    #[case("10", None, LineResult {line: "int_test = 10".to_string(), row: 0, column_start: 11, column_end: 13, nodes: vec![Node::Lvasgn, Node::Int]})]
+    #[case("10", None, LineResult {line: "int_test = 10".to_string(), row: 0, column_start: 11, column_end: 13, nodes: Nodes::new(vec![Node::Lvasgn, Node::Int])})]
     // float
-    #[case("1.1", None, LineResult {line: "foo = 1.1".to_string(), row: 0, column_start: 6, column_end: 9, nodes: vec![Node::Lvasgn, Node::Float]})]
+    #[case("1.1", None, LineResult {line: "foo = 1.1".to_string(), row: 0, column_start: 6, column_end: 9, nodes: Nodes::new(vec![Node::Lvasgn, Node::Float])})]
     // rational
-    #[case("-1r", None, LineResult {line: "rational_test = -1r".to_string(), row: 0, column_start: 16, column_end: 19, nodes: vec![Node::Lvasgn, Node::Rational]})]
+    #[case("-1r", None, LineResult {line: "rational_test = -1r".to_string(), row: 0, column_start: 16, column_end: 19, nodes: Nodes::new(vec![Node::Lvasgn, Node::Rational])})]
     // block pass
-    #[case("block_test", None, LineResult {line: "foo(&block_test)".to_string(), row: 0, column_start: 5, column_end: 15, nodes: vec![Node::Send, Node::BlockPass, Node::Send]})]
+    #[case("block_test", None, LineResult {line: "foo(&block_test)".to_string(), row: 0, column_start: 5, column_end: 15, nodes: Nodes::new(vec![Node::Send, Node::BlockPass, Node::Send])})]
     // block args
-    #[case("foo", None, LineResult {line: "def m(&foo); end".to_string(), row: 0, column_start: 6, column_end: 9, nodes: vec![Node::Def, Node::Arg, Node::Blockarg]})]
+    #[case("foo", None, LineResult {line: "def m(&foo); end".to_string(), row: 0, column_start: 6, column_end: 9, nodes: Nodes::new(vec![Node::Def, Node::Args, Node::Blockarg])})]
     // break
-    #[case("break_test", None, LineResult {line: "break :break_test".to_string(), row: 0, column_start: 6, column_end: 17, nodes: vec![Node::Break, Node::Sym]})]
+    #[case("break_test", None, LineResult {line: "break :break_test".to_string(), row: 0, column_start: 6, column_end: 17, nodes: Nodes::new(vec![Node::Break, Node::Sym])})]
     // csend
-    #[case("csend_test", None, LineResult {line: "foo&.csend_test(42)".to_string(), row: 0, column_start: 5, column_end: 15, nodes: vec![Node::CSend]})]
+    #[case("csend_test", None, LineResult {line: "foo&.csend_test(42)".to_string(), row: 0, column_start: 5, column_end: 15, nodes: Nodes::new(vec![Node::CSend])})]
     // super
-    #[case("super", None, LineResult {line: "super".to_string(), row: 0, column_start: 0, column_end: 5, nodes: vec![Node::ZSuper]})]
+    #[case("super", None, LineResult {line: "super".to_string(), row: 0, column_start: 0, column_end: 5, nodes: Nodes::new(vec![Node::ZSuper])})]
     // xstr
-    #[case("xstr_test", None, LineResult {line: "`sh #{xstr_test}`".to_string(), row: 0, column_start: 6, column_end: 15, nodes: vec![Node::Xstr, Node::Begin, Node::Send]})]
+    #[case("xstr_test", None, LineResult {line: "`sh #{xstr_test}`".to_string(), row: 0, column_start: 6, column_end: 15, nodes: Nodes::new(vec![Node::Xstr, Node::Begin, Node::Send])})]
     // yield
-    #[case("yield_test", None, LineResult {line: "yield yield_test, row: foo".to_string(), row: 0, column_start: 6, column_end: 16, nodes: vec![Node::Yield, Node::Send]})]
+    #[case("yield_test", None, LineResult {line: "yield yield_test, row: foo".to_string(), row: 0, column_start: 6, column_end: 16, nodes: Nodes::new(vec![Node::Yield, Node::Send])})]
     // true
-    #[case("true", None, LineResult {line: "value = true".to_string(), row: 0, column_start: 8, column_end: 12, nodes: vec![Node::Lvasgn, Node::True]})]
+    #[case("true", None, LineResult {line: "value = true".to_string(), row: 0, column_start: 8, column_end: 12, nodes: Nodes::new(vec![Node::Lvasgn, Node::True])})]
     // super
-    #[case("super", None, LineResult {line: "super(1, row: 2)".to_string(), row: 0, column_start: 0, column_end: 5, nodes: vec![Node::Super]})]
+    #[case("super", None, LineResult {line: "super(1, row: 2)".to_string(), row: 0, column_start: 0, column_end: 5, nodes: Nodes::new(vec![Node::Super])})]
     // shadowarg
-    #[case("shadow", None, LineResult {line: "proc { |;shadow|}".to_string(), row: 0, column_start: 9, column_end: 15, nodes: vec![Node::Block, Node::Arg, Node::Shadowarg]})]
+    #[case("shadow", None, LineResult {line: "proc { |;shadow|}".to_string(), row: 0, column_start: 9, column_end: 15, nodes: Nodes::new(vec![Node::Block, Node::Args, Node::Shadowarg])})]
     // self
-    #[case("self", None, LineResult {line: "self.vvvv".to_string(), row: 0, column_start: 0, column_end: 4, nodes: vec![Node::Send, Node::Self_]})]
+    #[case("self", None, LineResult {line: "self.vvvv".to_string(), row: 0, column_start: 0, column_end: 4, nodes: Nodes::new(vec![Node::Send, Node::Self_])})]
     // splat
-    #[case("splat", None, LineResult {line: "foo(*splat)".to_string(), row: 0, column_start: 5, column_end: 10, nodes: vec![Node::Send, Node::Splat, Node::Send]})]
+    #[case("splat", None, LineResult {line: "foo(*splat)".to_string(), row: 0, column_start: 5, column_end: 10, nodes: Nodes::new(vec![Node::Send, Node::Splat, Node::Send])})]
     // return
-    #[case("ret", None, LineResult {line: "return ret, row: 1".to_string(), row: 0, column_start: 7, column_end: 10, nodes: vec![Node::Return, Node::Send]})]
+    #[case("ret", None, LineResult {line: "return ret, row: 1".to_string(), row: 0, column_start: 7, column_end: 10, nodes: Nodes::new(vec![Node::Return, Node::Arg, Node::Send])})]
     // retry
-    #[case("retry", None, LineResult {line: "retry if try < vv".to_string(), row: 0, column_start: 0, column_end: 5, nodes: vec![Node::IfMod, Node::Retry]})]
+    #[case("retry", None, LineResult {line: "retry if try < vv".to_string(), row: 0, column_start: 0, column_end: 5, nodes: Nodes::new(vec![Node::IfMod, Node::Retry])})]
     // regexp
-    #[case("regex", None, LineResult {line: "/regex/mix".to_string(), row: 0, column_start: 1, column_end: 6, nodes: vec![Node::Regexp, Node::Str]})]
-    #[case("imx", None, LineResult {line: "/regex/mix".to_string(), row: 0, column_start: 7, column_end: 10, nodes: vec![Node::Regexp, Node::RegOpt]})]
+    #[case("regex", None, LineResult {line: "/regex/mix".to_string(), row: 0, column_start: 1, column_end: 6, nodes: Nodes::new(vec![Node::Regexp, Node::Str])})]
+    #[case("imx", None, LineResult {line: "/regex/mix".to_string(), row: 0, column_start: 7, column_end: 10, nodes: Nodes::new(vec![Node::Regexp, Node::RegOpt])})]
     // redo
-    #[case("redo", None, LineResult {line: "redo if test".to_string(), row: 0, column_start: 0, column_end: 4, nodes: vec![Node::IfMod, Node::Redo]})]
+    #[case("redo", None, LineResult {line: "redo if test".to_string(), row: 0, column_start: 0, column_end: 4, nodes: Nodes::new(vec![Node::IfMod, Node::Redo])})]
     // proc
-    #[case("proc1", None, LineResult {line: "proc { |(proc1, proc2)| }".to_string(), row: 0, column_start: 9, column_end: 14, nodes: vec![Node::Block, Node::Arg, Node::Procarg0, Node::Arg]})]
+    #[case("proc1", None, LineResult {line: "proc { |(proc1, proc2)| }".to_string(), row: 0, column_start: 9, column_end: 14, nodes: Nodes::new(vec![Node::Block, Node::Args, Node::Procarg0, Node::Arg])})]
     // preexe
-    #[case("BEGIN", None, LineResult {line: "BEGIN { 1 }".to_string(), row: 0, column_start: 0, column_end: 5, nodes: vec![Node::Preexe]})]
+    #[case("BEGIN", None, LineResult {line: "BEGIN { 1 }".to_string(), row: 0, column_start: 0, column_end: 5, nodes: Nodes::new(vec![Node::Preexe])})]
     // postexe
-    #[case("END", None, LineResult {line: "END { 1 }".to_string(), row: 0, column_start: 0, column_end: 3, nodes: vec![Node::Postexe]})]
+    #[case("END", None, LineResult {line: "END { 1 }".to_string(), row: 0, column_start: 0, column_end: 3, nodes: Nodes::new(vec![Node::Postexe])})]
     // and
-    #[case("bar", None, LineResult {line: "foo && bar".to_string(), row: 0, column_start: 7, column_end: 10, nodes: vec![Node::And, Node::Send]})]
-    #[case("foo", None, LineResult {line: "foo &&= bar".to_string(), row: 0, column_start: 0, column_end: 3, nodes: vec![Node::AndAsgn, Node::Lvasgn]})]
+    #[case("bar", None, LineResult {line: "foo && bar".to_string(), row: 0, column_start: 7, column_end: 10, nodes: Nodes::new(vec![Node::And, Node::Send])})]
+    #[case("foo", None, LineResult {line: "foo &&= bar".to_string(), row: 0, column_start: 0, column_end: 3, nodes: Nodes::new(vec![Node::AndAsgn, Node::Lvasgn])})]
     // or
-    #[case("bar", None, LineResult {line: "foo || bar".to_string(), row: 0, column_start: 7, column_end: 10, nodes: vec![Node::Or, Node::Send]})]
+    #[case("bar", None, LineResult {line: "foo || bar".to_string(), row: 0, column_start: 7, column_end: 10, nodes: Nodes::new(vec![Node::Or, Node::Send])})]
     // optarg
-    #[case("bar", None, LineResult {line: "def foo(bar = 1); end".to_string(), row: 0, column_start: 8, column_end: 11, nodes: vec![Node::Def, Node::Arg, Node::Optarg]})]
+    #[case("bar", None, LineResult {line: "def foo(bar = 1); end".to_string(), row: 0, column_start: 8, column_end: 11, nodes: Nodes::new(vec![Node::Def, Node::Args, Node::Optarg])})]
     // num block
-    #[case("_2", None, LineResult {line: "proc { _2 }".to_string(), row: 0, column_start: 5, column_end: 8, nodes: vec![Node::Numblock]})]
+    #[case("_2", None, LineResult {line: "proc { _2 }".to_string(), row: 0, column_start: 5, column_end: 8, nodes: Nodes::new(vec![Node::Numblock])})]
     // nthref
-    #[case("$1", None, LineResult {line: "puts \"#$1\"".to_string(), row: 0, column_start: 7, column_end: 8, nodes: vec![Node::Send, Node::Dstr, Node::NthRef]})]
+    #[case("$1", None, LineResult {line: "puts \"#$1\"".to_string(), row: 0, column_start: 7, column_end: 8, nodes: Nodes::new(vec![Node::Send, Node::Dstr, Node::NthRef])})]
     // nil
-    #[case("nil", None, LineResult {line: "v = nil".to_string(), row: 0, column_start: 4, column_end: 7, nodes: vec![Node::Lvasgn, Node::Nil]})]
+    #[case("nil", None, LineResult {line: "v = nil".to_string(), row: 0, column_start: 4, column_end: 7, nodes: Nodes::new(vec![Node::Lvasgn, Node::Nil])})]
     // next
-    #[case("next", None, LineResult {line: "next 1".to_string(), row: 0, column_start: 0, column_end: 4, nodes: vec![Node::Next]})]
+    #[case("next", None, LineResult {line: "next 1".to_string(), row: 0, column_start: 0, column_end: 4, nodes: Nodes::new(vec![Node::Next])})]
     // backref
-    #[case("$+", None, LineResult {line: "$1, $+".to_string(), row: 0, column_start: 4, column_end: 6, nodes: vec![Node::BackRef]})]
+    #[case("$+", None, LineResult {line: "$1, $+".to_string(), row: 0, column_start: 4, column_end: 6, nodes: Nodes::new(vec![Node::BackRef])})]
     // cbase
-    #[case("::", None, LineResult {line: "::X = 10".to_string(), row: 0, column_start: 0, column_end: 2, nodes: vec![Node::Casgn, Node::Cbase]})]
+    #[case("::", None, LineResult {line: "::X = 10".to_string(), row: 0, column_start: 0, column_end: 2, nodes: Nodes::new(vec![Node::Casgn, Node::Cbase])})]
     // complex
-    #[case("4i", None, LineResult {line: "3 + 4i".to_string(), row: 0, column_start: 4, column_end: 6, nodes: vec![Node::Send, Node::Complex]})]
+    #[case("4i", None, LineResult {line: "3 + 4i".to_string(), row: 0, column_start: 4, column_end: 6, nodes: Nodes::new(vec![Node::Send, Node::Complex])})]
     // defined
-    #[case("foo", None, LineResult {line: "defined?(foo)".to_string(), row: 0, column_start: 9, column_end: 12, nodes: vec![Node::Defined, Node::Send]})]
+    #[case("foo", None, LineResult {line: "defined?(foo)".to_string(), row: 0, column_start: 9, column_end: 12, nodes: Nodes::new(vec![Node::Defined, Node::Send])})]
     // empty else
-    #[case("else", None, LineResult {line: "case foo; in 1; else; end".to_string(), row: 0, column_start: 16, column_end: 20, nodes: vec![Node::CaseMatch, Node::EmptyElse]})]
+    #[case("else", None, LineResult {line: "case foo; in 1; else; end".to_string(), row: 0, column_start: 16, column_end: 20, nodes: Nodes::new(vec![Node::CaseMatch, Node::EmptyElse])})]
     // __ENCODING__
-    #[case("__ENCODING__", None, LineResult {line: "__ENCODING__".to_string(), row: 0, column_start: 0, column_end: 12, nodes: vec![Node::Encoding]})]
+    #[case("__ENCODING__", None, LineResult {line: "__ENCODING__".to_string(), row: 0, column_start: 0, column_end: 12, nodes: Nodes::new(vec![Node::Encoding])})]
     // __FILE__
-    #[case("__FILE__", None, LineResult {line: "__FILE__".to_string(), row: 0, column_start: 0, column_end: 8, nodes: vec![Node::File]})]
+    #[case("__FILE__", None, LineResult {line: "__FILE__".to_string(), row: 0, column_start: 0, column_end: 8, nodes: Nodes::new(vec![Node::File])})]
     // __LINE__
-    #[case("__LINE__", None, LineResult {line: "__LINE__".to_string(), row: 0, column_start: 0, column_end: 8, nodes: vec![Node::Line]})]
+    #[case("__LINE__", None, LineResult {line: "__LINE__".to_string(), row: 0, column_start: 0, column_end: 8, nodes: Nodes::new(vec![Node::Line])})]
     // ensure
-    #[case("bar", None, LineResult {line: "begin; foo; ensure; bar; end".to_string(), row: 0, column_start: 20, column_end: 23, nodes: vec![Node::KwBegin, Node::Ensure, Node::Send]})]
+    #[case("bar", None, LineResult {line: "begin; foo; ensure; bar; end".to_string(), row: 0, column_start: 20, column_end: 23, nodes: Nodes::new(vec![Node::KwBegin, Node::Ensure, Node::Send])})]
     // erange
-    #[case("1", None, LineResult {line: "1...3".to_string(), row: 0, column_start: 0, column_end: 1, nodes: vec![Node::Erange, Node::Int]})]
-    #[case("2", None, LineResult {line: "2..4".to_string(), row: 0, column_start: 0, column_end: 1, nodes: vec![Node::Irange, Node::Int]})]
+    #[case("1", None, LineResult {line: "1...3".to_string(), row: 0, column_start: 0, column_end: 1, nodes: Nodes::new(vec![Node::Erange, Node::Int])})]
+    #[case("2", None, LineResult {line: "2..4".to_string(), row: 0, column_start: 0, column_end: 1, nodes: Nodes::new(vec![Node::Irange, Node::Int])})]
     // IFlipFlop
-    #[case("foo", None, LineResult {line: "if foo..bar; end".to_string(), row: 0, column_start: 3, column_end: 6, nodes: vec![Node::If, Node::IFlipFlop, Node::Send]})]
-    #[case("bar", None, LineResult {line: "if foo..bar; end".to_string(), row: 0, column_start: 8, column_end: 11, nodes: vec![Node::If, Node::IFlipFlop, Node::Send]})]
+    #[case("foo", None, LineResult {line: "if foo..bar; end".to_string(), row: 0, column_start: 3, column_end: 6, nodes: Nodes::new(vec![Node::If, Node::IFlipFlop, Node::Send])})]
+    #[case("bar", None, LineResult {line: "if foo..bar; end".to_string(), row: 0, column_start: 8, column_end: 11, nodes: Nodes::new(vec![Node::If, Node::IFlipFlop, Node::Send])})]
     // false
-    #[case("false", None, LineResult {line: "foo = false".to_string(), row: 0, column_start: 6, column_end: 11, nodes: vec![Node::Lvasgn, Node::False]})]
+    #[case("false", None, LineResult {line: "foo = false".to_string(), row: 0, column_start: 6, column_end: 11, nodes: Nodes::new(vec![Node::Lvasgn, Node::False])})]
     // for
-    #[case("foo", None, LineResult {line: "for foo in bar; puts 'v'; end".to_string(), row: 0, column_start: 4, column_end: 7, nodes: vec![Node::For, Node::Lvasgn]})]
+    #[case("foo", None, LineResult {line: "for foo in bar; puts 'v'; end".to_string(), row: 0, column_start: 4, column_end: 7, nodes: Nodes::new(vec![Node::For, Node::Lvasgn])})]
     // match pattern
-    #[case("foo", None, LineResult {line: "foo in pattern".to_string(), row: 0, column_start: 0, column_end: 3, nodes: vec![Node::MatchPatternP, Node::Send]})]
-    #[case("foo", None, LineResult {line: "foo => pattern".to_string(), row: 0, column_start: 0, column_end: 3, nodes: vec![Node::MatchPattern, Node::Send]})]
-    #[case("bar", None, LineResult {line: "foo in foo | bar".to_string(), row: 0, column_start: 13, column_end: 16, nodes: vec![Node::MatchPatternP, Node::MatchAlt, Node::MatchVar]})]
-    #[case("nil", None, LineResult {line: "foo() in **nil".to_string(), row: 0, column_start: 9, column_end: 14, nodes: vec![Node::MatchPatternP, Node::HashPattern, Node::MatchNilPattern]})]
+    #[case("foo", None, LineResult {line: "foo in pattern".to_string(), row: 0, column_start: 0, column_end: 3, nodes: Nodes::new(vec![Node::MatchPatternP, Node::Send])})]
+    #[case("foo", None, LineResult {line: "foo => pattern".to_string(), row: 0, column_start: 0, column_end: 3, nodes: Nodes::new(vec![Node::MatchPattern, Node::Send])})]
+    #[case("bar", None, LineResult {line: "foo in foo | bar".to_string(), row: 0, column_start: 13, column_end: 16, nodes: Nodes::new(vec![Node::MatchPatternP, Node::MatchAlt, Node::MatchVar])})]
+    #[case("nil", None, LineResult {line: "foo() in **nil".to_string(), row: 0, column_start: 9, column_end: 14, nodes: Nodes::new(vec![Node::MatchPatternP, Node::HashPattern, Node::MatchNilPattern])})]
     // heredoc
-    #[case("xhere_test", Some("<<-`HERE`\n  a   #{xhere_test} \nHERE".to_string()), LineResult {line: "  a   #{xhere_test} ".to_string(), row: 1, column_start: 8, column_end: 18, nodes: vec![Node::XHeredoc, Node::Begin, Node::Send]})]
+    #[case("xhere_test", Some("<<-`HERE`\n  a   #{xhere_test} \nHERE".to_string()), LineResult {line: "  a   #{xhere_test} ".to_string(), row: 1, column_start: 8, column_end: 18, nodes: Nodes::new(vec![Node::XHeredoc, Node::Begin, Node::Send])})]
     fn grep_source(
         #[case] query: String,
         #[case] text: Option<String>,
@@ -2954,8 +2100,9 @@ mod tests {
             text.unwrap_or(expected.line.clone()).as_str(),
             &m,
             GrepOptions {
-                start_nodes: None,
-                end_nodes: None,
+                start_pattern: None,
+                end_pattern: None,
+                pattern: None,
             },
         );
 
@@ -2977,11 +2124,12 @@ mod tests {
     }
 
     #[rstest]
-    // start_nodes
+    //start_pattern
     #[case(
         "foo",
         "def test; foo.bar(); end;",
         Some(vec![Node::Def, Node::Send]),
+        None,
         None,
         true
     )]
@@ -2990,12 +2138,31 @@ mod tests {
         "def test; foo.bar(); end;",
         None,
         Some(vec![Node::Send]),
+        None,
         false
     )]
-    // end_nodes
+    // end_pattern
     #[case(
         "foo",
         "def test; foo.bar(); end;",
+        None,
+        Some(vec![Node::Send, Node::Send]),
+        None,
+        true
+    )]
+    #[case(
+        "test",
+        "def test; foo.bar(); end;",
+        None,
+        Some(vec![Node::Send]),
+        None,
+        false
+    )]
+    // pattern
+    #[case(
+        "foo",
+        "def test; foo.bar(); end;",
+        None,
         None,
         Some(vec![Node::Send, Node::Send]),
         true
@@ -3004,14 +2171,16 @@ mod tests {
         "test",
         "def test; foo.bar(); end;",
         None,
-        Some(vec![Node::Send]),
+        None,
+        Some(vec![Node::Def, Node::Int]),
         false
     )]
     fn grep_search_options(
         #[case] query: String,
         #[case] text: String,
-        #[case] start_nodes: Option<Vec<Node>>,
-        #[case] end_nodes: Option<Vec<Node>>,
+        #[case] start_pattern: Option<Vec<Node>>,
+        #[case] end_pattern: Option<Vec<Node>>,
+        #[case] pattern: Option<Vec<Node>>,
         #[case] expected: bool,
     ) {
         let m = TextMatcher::new(query.to_string(), false, false);
@@ -3019,8 +2188,9 @@ mod tests {
             text.as_str(),
             &m,
             GrepOptions {
-                start_nodes: start_nodes,
-                end_nodes: end_nodes,
+                start_pattern,
+                end_pattern,
+                pattern,
             },
         );
 
@@ -3039,7 +2209,7 @@ mod tests {
     )]
     fn test_to_nodes_string(#[case] nodes: Vec<Node>, #[case] expected: String) {
         assert_eq!(
-            LineResult::new(0, "".to_string(), nodes, 0, 0).to_nodes_string(),
+            LineResult::new(0, "".to_string(), Nodes::new(nodes), 0, 0).to_nodes_string(),
             expected
         );
     }

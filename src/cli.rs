@@ -1,6 +1,7 @@
 use crate::matcher::{RegexMatcher, TextMatcher};
+use crate::node::Node;
 use crate::render::{self, Render};
-use crate::source::{GrepOptions, GrepResult, Node, Source};
+use crate::source::{GrepOptions, GrepResult, Source};
 use anyhow::Result;
 use clap::Parser;
 use clap_stdin::MaybeStdIn;
@@ -19,7 +20,7 @@ use tap::Tap;
 #[derive(Parser)]
 #[command(name = "rbgrep")]
 #[command(author = "Takahiro Sato. <harehare1110@gmail.com>")]
-#[command(version = "0.1.4")]
+#[command(version = "0.1.5")]
 #[command(
     about = "rbgrep is a line-oriented search cli tool that recursively searches ruby files in the current directory for a regex patterns.",
     long_about = None
@@ -45,17 +46,21 @@ pub struct Cli {
     #[arg(short = 'e', long)]
     regexp: bool,
 
-    /// Start nodes.
-    #[arg(short = 'S', long, value_enum)]
-    start_nodes: Option<Vec<Node>>,
-
     /// If specified, it excludes files or directories matching the given filename pattern from the search.
     #[arg(long)]
     exclude: Option<String>,
 
-    /// End nodes.
+    /// AST start pattern to match.
+    #[arg(short = 'S', long, value_enum)]
+    start_pattern: Option<Vec<Node>>,
+
+    /// AST end pattern to match.
     #[arg(short = 'E', long, value_enum)]
-    end_nodes: Option<Vec<Node>>,
+    end_pattern: Option<Vec<Node>>,
+
+    /// AST pattern to match.
+    #[arg(short = 'P', long, value_enum)]
+    pattern: Option<Vec<Node>>,
 
     /// Don't respect .gitignore files.
     #[arg(long)]
@@ -154,8 +159,9 @@ impl Cli {
                                 stdin.as_str(),
                                 &m,
                                 GrepOptions {
-                                    start_nodes: self.start_nodes.clone(),
-                                    end_nodes: self.end_nodes.clone(),
+                                    start_pattern: self.start_pattern.clone(),
+                                    end_pattern: self.end_pattern.clone(),
+                                    pattern: self.pattern.clone(),
                                 },
                             );
 
@@ -180,8 +186,9 @@ impl Cli {
                                                     content.as_str(),
                                                     &m,
                                                     GrepOptions {
-                                                        start_nodes: self.start_nodes.clone(),
-                                                        end_nodes: self.end_nodes.clone(),
+                                                        start_pattern: self.start_pattern.clone(),
+                                                        end_pattern: self.end_pattern.clone(),
+                                                        pattern: self.pattern.clone(),
                                                     },
                                                 );
 
@@ -212,8 +219,9 @@ impl Cli {
                         stdin.as_str(),
                         &m,
                         GrepOptions {
-                            start_nodes: self.start_nodes.clone(),
-                            end_nodes: self.end_nodes.clone(),
+                            start_pattern: self.start_pattern.clone(),
+                            end_pattern: self.end_pattern.clone(),
+                            pattern: self.pattern.clone(),
                         },
                     );
 
@@ -238,8 +246,9 @@ impl Cli {
                                             content.as_str(),
                                             &m,
                                             GrepOptions {
-                                                start_nodes: self.start_nodes.clone(),
-                                                end_nodes: self.end_nodes.clone(),
+                                                start_pattern: self.start_pattern.clone(),
+                                                end_pattern: self.end_pattern.clone(),
+                                                pattern: self.pattern.clone(),
                                             },
                                         );
 
@@ -402,8 +411,8 @@ mod tests {
             exact_match: false,
             hidden: true,
             regexp,
-            start_nodes: None,
-            end_nodes: None,
+            start_pattern: None,
+            end_pattern: None,
             only_matching: false,
             no_git_ignore: false,
             no_file_name: false,
@@ -423,6 +432,7 @@ mod tests {
             path: Some(vec![dir.to_str().unwrap().to_string()]),
             stdin: None,
             json: false,
+            pattern: None,
         };
 
         assert_eq!(cli.run().is_ok(), expected);
@@ -456,8 +466,8 @@ mod tests {
             exact_match: false,
             hidden: true,
             regexp: false,
-            start_nodes: None,
-            end_nodes: None,
+            start_pattern: None,
+            end_pattern: None,
             only_matching: false,
             no_git_ignore: false,
             no_file_name: false,
@@ -477,6 +487,7 @@ mod tests {
             path: Some(vec![file.path().to_str().unwrap().to_string()]),
             stdin: is_stdin.then_some(MaybeStdIn::from_str(text.as_str()).unwrap()),
             json: false,
+            pattern: None,
         };
 
         assert_eq!(cli.run().is_ok(), expected);
