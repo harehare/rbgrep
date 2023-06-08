@@ -24,7 +24,7 @@ impl Matcher for TextMatcher {
                 .to_lowercase()
                 .contains(self.query.clone().to_lowercase().as_str()),
             (true, true) => *text == self.query,
-            (true, false) => text.to_string().to_lowercase() == self.query.to_lowercase(),
+            (true, false) => text.to_lowercase() == self.query.to_lowercase(),
         }
     }
 }

@@ -111,7 +111,6 @@ impl LineResult {
     pub fn to_nodes_string(&self) -> String {
         self.nodes
             .to_vec()
-            .clone()
             .iter()
             .map(|node| node.to_string())
             .collect::<Vec<String>>()
@@ -1854,7 +1853,7 @@ impl<'a, T: Matcher> Source<'a, T> {
     }
 
     fn error_messages(
-        diagnostics: &Vec<Diagnostic>,
+        diagnostics: &[Diagnostic],
         input: &DecodedInput,
     ) -> Vec<((usize, usize), bool, String)> {
         diagnostics
