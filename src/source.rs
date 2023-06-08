@@ -1,10 +1,13 @@
 use crate::{
     matcher::Matcher,
-    node::{Node, NodePath, Nodes},
+    node::{Node, Nodes},
 };
 use colored::*;
 use itertools::Itertools;
-use lib_ruby_parser::{source::DecodedInput, Diagnostic, Loc, Parser, ParserOptions, ParserResult};
+use lib_ruby_parser::{
+    source::{DecodedInput, Decoder, DecoderResult, InputError},
+    Diagnostic, Loc, Parser, ParserOptions, ParserResult,
+};
 use serde::Serialize;
 use std::{fmt, vec};
 
@@ -159,15 +162,27 @@ pub struct Source<'a, T: Matcher> {
     matcher: &'a T,
 }
 
+fn decode(encoding: String, input: Vec<u8>) -> DecoderResult {
+    if "US-ASCII" == encoding.to_uppercase() {
+        return DecoderResult::Ok(input);
+    }
+    DecoderResult::Err(InputError::DecodingError(
+        "only us-ascii is supported".to_string(),
+    ))
+}
+
 impl<'a, T: Matcher> Source<'a, T> {
     pub fn new(code: &str, matcher: &'a T, options: GrepOptions) -> Source<'a, T> {
         let parser = Parser::new(
             code.as_bytes().to_vec(),
             ParserOptions {
                 buffer_name: "(eval)".to_string(),
+                decoder: Some(Decoder::new(Box::new(decode))),
+
                 ..Default::default()
             },
         );
+
         let ParserResult {
             ast,
             input,
@@ -232,6 +247,10 @@ impl<'a, T: Matcher> Source<'a, T> {
                         return false;
                     }
 
+                    if pattern.to_vec().is_empty() {
+                        return true;
+                    }
+
                     r.nodes.contains(&pattern)
                 })
                 .collect();
@@ -272,7 +291,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::Arg(node) => self
                 .matcher
-                .is_match(NodePath(node.name.clone(), parent.append(Node::Arg)))
+                .is_match(node.name.clone())
                 .then(|| {
                     input
                         .line_col_for_pos(node.expression_l.begin)
@@ -355,10 +374,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::Blockarg(node) => self
                 .matcher
-                .is_match(NodePath(
-                    node.name.clone().unwrap_or("".to_string()),
-                    parent.append(Node::Blockarg),
-                ))
+                .is_match(node.name.clone().unwrap_or("".to_string()))
                 .then(|| {
                     input
                         .line_col_for_pos(node.expression_l.begin)
@@ -448,7 +464,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::Cbase(node) => self
                 .matcher
-                .is_match(NodePath("::".to_string(), parent.append(Node::Cbase)))
+                .is_match("::".to_string())
                 .then(|| {
                     match input.line_col_for_pos(node.expression_l.begin).map(|pos| {
                         LineResult::new(
@@ -588,7 +604,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::EmptyElse(node) => self
                 .matcher
-                .is_match(NodePath("else".to_string(), parent.append(Node::EmptyElse)))
+                .is_match("else".to_string())
                 .then(|| {
                     input
                         .line_col_for_pos(node.expression_l.begin)
@@ -608,10 +624,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::Encoding(node) => self
                 .matcher
-                .is_match(NodePath(
-                    "__ENCODING__".to_string(),
-                    parent.append(Node::Encoding),
-                ))
+                .is_match("__ENCODING__".to_string())
                 .then(|| {
                     input
                         .line_col_for_pos(node.expression_l.begin)
@@ -653,7 +666,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::False(node) => self
                 .matcher
-                .is_match(NodePath("false".to_string(), parent.append(Node::False)))
+                .is_match("false".to_string())
                 .then(|| {
                     match input.line_col_for_pos(node.expression_l.begin).map(|pos| {
                         LineResult::new(
@@ -672,7 +685,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::File(node) => self
                 .matcher
-                .is_match(NodePath("(__FILE__".to_string(), parent.append(Node::File)))
+                .is_match("(__FILE__".to_string())
                 .then(|| {
                     match input.line_col_for_pos(node.expression_l.begin).map(|pos| {
                         LineResult::new(
@@ -717,7 +730,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::ForwardArg(node) => self
                 .matcher
-                .is_match(NodePath("...".to_string(), parent.append(Node::ForwardArg)))
+                .is_match("...".to_string())
                 .then(|| {
                     input
                         .line_col_for_pos(node.expression_l.begin)
@@ -737,7 +750,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::ForwardedArgs(node) => self
                 .matcher
-                .is_match(NodePath("...".to_string(), parent.append(Node::ForwardArg)))
+                .is_match("...".to_string())
                 .then(|| {
                     input
                         .line_col_for_pos(node.expression_l.begin)
@@ -757,7 +770,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::Gvar(node) => self
                 .matcher
-                .is_match(NodePath(node.name.clone(), parent.append(Node::Gvar)))
+                .is_match(node.name.clone())
                 .then(|| {
                     input
                         .line_col_for_pos(node.expression_l.begin)
@@ -910,7 +923,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::Ivar(node) => self
                 .matcher
-                .is_match(NodePath(node.name.clone(), parent.append(Node::Ivar)))
+                .is_match(node.name.clone())
                 .then(|| {
                     match input.line_col_for_pos(node.expression_l.begin).map(|pos| {
                         LineResult::new(
@@ -951,7 +964,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::Kwarg(node) => self
                 .matcher
-                .is_match(NodePath(node.name.clone(), parent.append(Node::Kwarg)))
+                .is_match(node.name.clone())
                 .then(|| {
                     match input.line_col_for_pos(node.expression_l.begin).map(|pos| {
                         LineResult::new(
@@ -976,7 +989,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::Kwnilarg(node) => self
                 .matcher
-                .is_match(NodePath("**nil".to_string(), parent.append(Node::Kwnilarg)))
+                .is_match("**nil".to_string())
                 .then(|| {
                     match input.line_col_for_pos(node.expression_l.begin).map(|pos| {
                         LineResult::new(
@@ -995,7 +1008,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::Kwoptarg(node) => self
                 .matcher
-                .is_match(NodePath(node.name.clone(), parent.append(Node::Kwoptarg)))
+                .is_match(node.name.clone())
                 .then(|| {
                     match input.line_col_for_pos(node.expression_l.begin).map(|pos| {
                         LineResult::new(
@@ -1018,7 +1031,7 @@ impl<'a, T: Matcher> Source<'a, T> {
             lib_ruby_parser::Node::Kwrestarg(node) => match &node.name {
                 Some(name) => self
                     .matcher
-                    .is_match(NodePath(name.clone(), parent.append(Node::Kwrestarg)))
+                    .is_match(name.clone())
                     .then(|| {
                         input
                             .line_col_for_pos(node.expression_l.begin)
@@ -1044,7 +1057,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::Lambda(node) => self
                 .matcher
-                .is_match(NodePath("->".to_string(), parent.append(Node::Lambda)))
+                .is_match("->".to_string())
                 .then(|| {
                     input
                         .line_col_for_pos(node.expression_l.begin)
@@ -1064,7 +1077,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::Line(node) => self
                 .matcher
-                .is_match(NodePath("__LINE__".to_string(), parent.append(Node::Line)))
+                .is_match("__LINE__".to_string())
                 .then(|| {
                     input
                         .line_col_for_pos(node.expression_l.begin)
@@ -1084,7 +1097,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::Lvar(node) => self
                 .matcher
-                .is_match(NodePath(node.name.clone(), parent.append(Node::Lvar)))
+                .is_match(node.name.clone())
                 .then(|| {
                     input
                         .line_col_for_pos(node.expression_l.begin)
@@ -1103,10 +1116,7 @@ impl<'a, T: Matcher> Source<'a, T> {
                 .unwrap_or(vec![]),
 
             lib_ruby_parser::Node::Lvasgn(node) => {
-                if self
-                    .matcher
-                    .is_match(NodePath(node.name.clone(), parent.append(Node::Lvasgn)))
-                {
+                if self.matcher.is_match(node.name.clone()) {
                     itertools::concat(vec![
                         input
                             .line_col_for_pos(node.name_l.begin)
@@ -1155,10 +1165,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::MatchNilPattern(node) => self
                 .matcher
-                .is_match(NodePath(
-                    "**nil".to_string(),
-                    parent.append(Node::MatchNilPattern),
-                ))
+                .is_match("**nil".to_string())
                 .then(|| {
                     input
                         .line_col_for_pos(node.expression_l.begin)
@@ -1194,7 +1201,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::MatchVar(node) => self
                 .matcher
-                .is_match(NodePath(node.name.clone(), parent.append(Node::MatchVar)))
+                .is_match(node.name.clone())
                 .then(|| {
                     input
                         .line_col_for_pos(node.expression_l.begin)
@@ -1233,7 +1240,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::Next(node) => itertools::concat(vec![
                 self.matcher
-                    .is_match(NodePath("next".to_string(), parent.append(Node::Next)))
+                    .is_match("next".to_string())
                     .then(|| {
                         input
                             .line_col_for_pos(node.expression_l.begin)
@@ -1258,7 +1265,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::Nil(node) => self
                 .matcher
-                .is_match(NodePath("nil".to_string(), parent.append(Node::Nil)))
+                .is_match("nil".to_string())
                 .then(|| {
                     input
                         .line_col_for_pos(node.expression_l.begin)
@@ -1278,10 +1285,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::NthRef(node) => self
                 .matcher
-                .is_match(NodePath(
-                    format!("${}", &node.name),
-                    parent.append(Node::NthRef),
-                ))
+                .is_match(format!("${}", &node.name))
                 .then(|| {
                     input
                         .line_col_for_pos(node.expression_l.begin)
@@ -1303,10 +1307,7 @@ impl<'a, T: Matcher> Source<'a, T> {
                 self.search(parent.append(Node::Numblock), &node.call, input),
                 self.search(parent.append(Node::Numblock), &node.body, input),
                 self.matcher
-                    .is_match(NodePath(
-                        format!("_{}", node.numargs),
-                        parent.append(Node::Numblock),
-                    ))
+                    .is_match(format!("_{}", node.numargs))
                     .then(|| {
                         input
                             .line_col_for_pos(node.begin_l.begin)
@@ -1332,7 +1333,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::Optarg(node) => self
                 .matcher
-                .is_match(NodePath(node.name.clone(), parent.append(Node::Optarg)))
+                .is_match(node.name.clone())
                 .then(|| {
                     input
                         .line_col_for_pos(node.name_l.begin)
@@ -1371,7 +1372,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::Postexe(node) => itertools::concat(vec![
                 self.matcher
-                    .is_match(NodePath("END".to_string(), parent.append(Node::Postexe)))
+                    .is_match("END".to_string())
                     .then(|| {
                         input
                             .line_col_for_pos(node.expression_l.begin)
@@ -1396,7 +1397,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::Preexe(node) => itertools::concat(vec![
                 self.matcher
-                    .is_match(NodePath("BEGIN".to_string(), parent.append(Node::Preexe)))
+                    .is_match("BEGIN".to_string())
                     .then(|| {
                         input
                             .line_col_for_pos(node.expression_l.begin)
@@ -1438,7 +1439,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::Redo(node) => self
                 .matcher
-                .is_match(NodePath("redo".to_string(), parent.append(Node::Redo)))
+                .is_match("redo".to_string())
                 .then(|| {
                     input
                         .line_col_for_pos(node.expression_l.begin)
@@ -1461,7 +1462,7 @@ impl<'a, T: Matcher> Source<'a, T> {
                 .as_ref()
                 .map(|options| {
                     self.matcher
-                        .is_match(NodePath(options.clone(), parent.append(Node::RegOpt)))
+                        .is_match(options.clone())
                         .then(|| {
                             input
                                 .line_col_for_pos(node.expression_l.begin)
@@ -1537,7 +1538,7 @@ impl<'a, T: Matcher> Source<'a, T> {
                 .as_ref()
                 .map(|s| {
                     self.matcher
-                        .is_match(NodePath(s.to_string(), parent.append(Node::Restarg)))
+                        .is_match(s.to_string())
                         .then(|| {
                             input
                                 .line_col_for_pos(node.expression_l.begin)
@@ -1559,7 +1560,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::Retry(node) => self
                 .matcher
-                .is_match(NodePath("retry".to_string(), parent.append(Node::Retry)))
+                .is_match("retry".to_string())
                 .then(|| {
                     input
                         .line_col_for_pos(node.expression_l.begin)
@@ -1604,7 +1605,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::Self_(node) => self
                 .matcher
-                .is_match(NodePath("self".to_string(), parent.append(Node::Self_)))
+                .is_match("self".to_string())
                 .then(|| {
                     input
                         .line_col_for_pos(node.expression_l.begin)
@@ -1644,7 +1645,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::Shadowarg(node) => self
                 .matcher
-                .is_match(NodePath(node.name.clone(), parent.append(Node::Shadowarg)))
+                .is_match(node.name.clone())
                 .then(|| {
                     input
                         .line_col_for_pos(node.expression_l.begin)
@@ -1677,7 +1678,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::Super(node) => itertools::concat(vec![
                 self.matcher
-                    .is_match(NodePath("super".to_string(), parent.append(Node::Super)))
+                    .is_match("super".to_string())
                     .then(|| {
                         input
                             .line_col_for_pos(node.expression_l.begin)
@@ -1713,7 +1714,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::True(node) => self
                 .matcher
-                .is_match(NodePath("true".to_string(), parent.append(Node::True)))
+                .is_match("true".to_string())
                 .then(|| {
                     input
                         .line_col_for_pos(node.expression_l.begin)
@@ -1805,7 +1806,7 @@ impl<'a, T: Matcher> Source<'a, T> {
 
             lib_ruby_parser::Node::ZSuper(node) => self
                 .matcher
-                .is_match(NodePath("super".to_string(), parent.append(Node::ZSuper)))
+                .is_match("super".to_string())
                 .then(|| {
                     input
                         .line_col_for_pos(node.expression_l.begin)
@@ -1833,10 +1834,7 @@ impl<'a, T: Matcher> Source<'a, T> {
         input: &DecodedInput,
         offset: usize,
     ) -> Option<LineResult> {
-        if self
-            .matcher
-            .is_match(NodePath(text.to_string(), nodes.clone()))
-        {
+        if self.matcher.is_match(text.to_string()) {
             input.line_col_for_pos(loc.begin).map(|(row, column)| {
                 LineResult::new(
                     row,

@@ -1,8 +1,6 @@
 use anyhow::Result;
 use regex::Regex;
 
-use crate::node::NodePath;
-
 use super::Matcher;
 
 pub struct RegexMatcher {
@@ -17,16 +15,13 @@ impl RegexMatcher {
 }
 
 impl Matcher for RegexMatcher {
-    fn is_match(&self, node_path: NodePath) -> bool {
-        let NodePath(text, _) = node_path;
+    fn is_match(&self, text: String) -> bool {
         self.re.is_match(text.as_str())
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::node::{Node, NodePath, Nodes};
-
     use super::*;
     use rstest::rstest;
 
@@ -38,9 +33,7 @@ mod tests {
     fn is_regex(#[case] regex: String, #[case] text: String, #[case] expected: bool) {
         assert_eq!(
             expected,
-            RegexMatcher::new(regex.as_str())
-                .unwrap()
-                .is_match(NodePath(text, Nodes::new(vec![Node::Begin])))
+            RegexMatcher::new(regex.as_str()).unwrap().is_match(text)
         )
     }
 }

@@ -1,5 +1,3 @@
-use crate::node::NodePath;
-
 use super::Matcher;
 
 pub struct TextMatcher {
@@ -19,8 +17,7 @@ impl TextMatcher {
 }
 
 impl Matcher for TextMatcher {
-    fn is_match(&self, node_path: NodePath) -> bool {
-        let NodePath(text, _) = node_path;
+    fn is_match(&self, text: String) -> bool {
         match (self.exact_match, self.case_sensitive) {
             (false, true) => text.contains(self.query.clone().as_str()),
             (false, false) => text
@@ -34,12 +31,8 @@ impl Matcher for TextMatcher {
 
 #[cfg(test)]
 mod tests {
-
-    use rstest::rstest;
-
-    use crate::node::{Node, NodePath, Nodes};
-
     use super::*;
+    use rstest::rstest;
 
     #[rstest]
     #[case("test", false, false, "TEST_STRING", true)]
@@ -58,8 +51,7 @@ mod tests {
     ) {
         assert_eq!(
             expected,
-            TextMatcher::new(query, exact_match, case_sensitive)
-                .is_match(NodePath(text, Nodes::new(vec![Node::Begin])))
+            TextMatcher::new(query, exact_match, case_sensitive).is_match(text)
         )
     }
 }

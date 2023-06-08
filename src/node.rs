@@ -1,12 +1,6 @@
 use clap::ValueEnum;
 use serde::Serialize;
 
-#[derive(Debug, PartialEq, Clone)]
-pub struct NodePath(pub String, pub Nodes);
-
-#[derive(Debug, PartialEq, Clone)]
-pub struct NodeValue(pub Option<String>, pub Node);
-
 #[derive(Debug, PartialEq, Clone, Serialize)]
 pub struct Nodes(Vec<Node>);
 
@@ -32,18 +26,16 @@ impl Nodes {
     }
 
     pub fn contains(&self, nodes: &Nodes) -> bool {
-        let (target, part) = if self.0.len() > nodes.0.len() {
-            (&self.0, &nodes.0)
-        } else {
-            (&nodes.0, &self.0)
-        };
-
-        if part.is_empty() {
+        if nodes.0.is_empty() {
             return true;
         }
 
-        for w in target.windows(part.len()) {
-            if w == part {
+        if self.0.len() < nodes.0.len() {
+            return false;
+        }
+
+        for w in self.0.windows(nodes.0.len()) {
+            if w == nodes.0 {
                 return true;
             }
         }
@@ -178,4 +170,20 @@ pub enum Node {
     Xstr,
     Yield,
     ZSuper,
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::node::{Node, Nodes};
+    use rstest::rstest;
+
+    #[rstest]
+    #[case(Nodes::empty(), Nodes::empty(), true)]
+    #[case(Nodes::new(vec![Node::Class, Node::Def, Node::Args]), Nodes::new(vec![Node::Class, Node::Def, Node::Args]), true)]
+    #[case(Nodes::new(vec![Node::Class, Node::Def, Node::Args]), Nodes::new(vec![Node::Def, Node::Args]), true)]
+    #[case(Nodes::new(vec![Node::Def, Node::Args]), Nodes::new(vec![Node::Class, Node::Def, Node::Args]), false)]
+    #[case(Nodes::new(vec![Node::Def, Node::Args]), Nodes::new(vec![Node::Class, Node::Args]), false)]
+    fn test_contains(#[case] target: Nodes, #[case] part: Nodes, #[case] expected: bool) {
+        assert_eq!(target.contains(&part), expected);
+    }
 }
