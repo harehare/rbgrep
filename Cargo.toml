@@ -3,7 +3,7 @@ description = "rbgrep is a AST-based line-oriented search cli tool that recursiv
 edition = "2021"
 license = "MIT"
 name = "rbgrep"
-version = "0.1.4"
+version = "0.1.5"
 
 [[bin]]
 name = "rbgrep"

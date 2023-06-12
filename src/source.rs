@@ -1834,18 +1834,34 @@ impl<'a, T: Matcher> Source<'a, T> {
         offset: usize,
     ) -> Option<LineResult> {
         if self.matcher.is_match(text.to_string()) {
-            input.line_col_for_pos(loc.begin).map(|(row, column)| {
-                LineResult::new(
-                    row,
-                    self.lines[row].clone(),
-                    nodes,
-                    column,
-                    if column + text.len() + offset < self.lines[row].clone().len() {
-                        column + text.len() + offset
+            input.line_col_for_pos(loc.begin).and_then(|(row, column)| {
+                input.line_col_for_pos(loc.end).map(|(row2, _)| {
+                    if row == row2 {
+                        LineResult::new(
+                            row,
+                            self.lines[row].clone(),
+                            nodes,
+                            column,
+                            if column + text.len() + offset < self.lines[row].clone().len() {
+                                column + text.len() + offset
+                            } else {
+                                self.lines[row].clone().len()
+                            },
+                        )
                     } else {
-                        self.lines[row].clone().len()
-                    },
-                )
+                        LineResult::new(
+                            row,
+                            self.lines[row..row2].join("\n"),
+                            nodes,
+                            column,
+                            if column + text.len() + offset < self.lines[row].clone().len() {
+                                column + text.len() + offset
+                            } else {
+                                self.lines[row].clone().len()
+                            },
+                        )
+                    }
+                })
             })
         } else {
             None
