@@ -9,7 +9,7 @@ use lib_ruby_parser::{
     Diagnostic, Loc, Parser, ParserOptions, ParserResult,
 };
 use serde::Serialize;
-use std::{fmt, vec};
+use std::{fmt, sync::Arc, vec};
 
 pub struct GrepOptions {
     pub start_pattern: Option<Vec<Node>>,
@@ -130,19 +130,25 @@ impl LineResult {
             .nth(self.column_end)
             .map(|(i, _)| i)
             .unwrap_or(self.column_end);
-
         let start_text = &self.line[..start_index];
         let match_text = &self
             .line
             .get(start_index..end_index)
             .unwrap_or(&self.line[start_index..]);
-        let end = if match_text.starts_with('"') || match_text.starts_with('\'') {
+
+        let end_index = if match_text.starts_with('"') || match_text.starts_with('\'') {
             end_index + 2
         } else {
             end_index
         };
-        let match_text = &self.line[start_index..end];
-        let end_text = &self.line[end..];
+        let end_index = if end_index > self.line.len() - 1 {
+            self.line.len() - 1
+        } else {
+            end_index
+        };
+
+        let match_text = &self.line[start_index..end_index];
+        let end_text = &self.line[end_index..];
 
         if only_matching {
             format!("{}", match_text.red().bold())
@@ -152,13 +158,13 @@ impl LineResult {
     }
 }
 
-pub struct Source<'a, T: Matcher> {
+pub struct Source {
     lines: Vec<String>,
     root: Option<Box<lib_ruby_parser::Node>>,
     input: DecodedInput,
     options: GrepOptions,
     diagnostics: Vec<Diagnostic>,
-    matcher: &'a T,
+    matcher: Arc<dyn Matcher>,
 }
 
 fn decode(encoding: String, input: Vec<u8>) -> DecoderResult {
@@ -170,8 +176,8 @@ fn decode(encoding: String, input: Vec<u8>) -> DecoderResult {
     ))
 }
 
-impl<'a, T: Matcher> Source<'a, T> {
-    pub fn new(code: &str, matcher: &'a T, options: GrepOptions) -> Source<'a, T> {
+impl Source {
+    pub fn new(code: &str, matcher: Arc<dyn Matcher>, options: GrepOptions) -> Source {
         let parser = Parser::new(
             code.as_bytes().to_vec(),
             ParserOptions {
@@ -2113,7 +2119,7 @@ mod tests {
         let m = TextMatcher::new(query, false, false);
         let source = Source::new(
             text.unwrap_or(expected.line.clone()).as_str(),
-            &m,
+            m,
             GrepOptions {
                 start_pattern: None,
                 end_pattern: None,
@@ -2201,7 +2207,7 @@ mod tests {
         let m = TextMatcher::new(query.to_string(), false, false);
         let source = Source::new(
             text.as_str(),
-            &m,
+            m,
             GrepOptions {
                 start_pattern,
                 end_pattern,

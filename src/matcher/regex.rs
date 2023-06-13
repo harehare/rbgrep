@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use anyhow::Result;
 use regex::Regex;
 
@@ -8,9 +10,9 @@ pub struct RegexMatcher {
 }
 
 impl RegexMatcher {
-    pub fn new(regex: &str) -> Result<Self> {
+    pub fn new(regex: &str) -> Result<Arc<dyn Matcher>> {
         let re = Regex::new(regex)?;
-        Ok(RegexMatcher { re })
+        Ok(Arc::new(RegexMatcher { re }))
     }
 }
 

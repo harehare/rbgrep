@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use super::Matcher;
 
 pub struct TextMatcher {
@@ -7,12 +9,12 @@ pub struct TextMatcher {
 }
 
 impl TextMatcher {
-    pub fn new(query: String, exact_match: bool, case_sensitive: bool) -> Self {
-        TextMatcher {
+    pub fn new(query: String, exact_match: bool, case_sensitive: bool) -> Arc<dyn Matcher> {
+        Arc::new(TextMatcher {
             query,
             exact_match,
             case_sensitive,
-        }
+        })
     }
 }
 

@@ -20,7 +20,7 @@ use tap::Tap;
 #[derive(Parser)]
 #[command(name = "rbgrep")]
 #[command(author = "Takahiro Sato. <harehare1110@gmail.com>")]
-#[command(version = "0.1.5")]
+#[command(version = "0.1.6")]
 #[command(
     about = "rbgrep is a line-oriented search cli tool that recursively searches ruby files in the current directory for a regex patterns.",
     long_about = None
@@ -149,125 +149,75 @@ impl Cli {
             Some(p) => p.clone(),
             None => vec![".".to_string()],
         };
-
-        if self.regexp {
-            match RegexMatcher::new(self.query.as_str()) {
-                Ok(m) => {
-                    let results = match self.stdin.as_ref() {
-                        Some(stdin) => {
-                            let source = Source::new(
-                                stdin.as_str(),
-                                &m,
-                                GrepOptions {
-                                    start_pattern: self.start_pattern.clone(),
-                                    end_pattern: self.end_pattern.clone(),
-                                    pattern: self.pattern.clone(),
-                                },
-                            );
-
-                            source
-                                .grep("")
-                                .map(|r| {
-                                    self.print(&r);
-                                    vec![r]
-                                })
-                                .unwrap_or(vec![])
-                        }
-                        None => path_list
-                            .par_iter()
-                            .flat_map(|path| {
-                                self.entries(path)
-                                    .par_iter()
-                                    .filter_map(|path| {
-                                        fs::read_to_string(path)
-                                            .ok()
-                                            .and_then(|content| {
-                                                let source = Source::new(
-                                                    content.as_str(),
-                                                    &m,
-                                                    GrepOptions {
-                                                        start_pattern: self.start_pattern.clone(),
-                                                        end_pattern: self.end_pattern.clone(),
-                                                        pattern: self.pattern.clone(),
-                                                    },
-                                                );
-
-                                                source
-                                                    .errors(path.clone(), self.with_warning)
-                                                    .or(source.grep(path))
-                                            })
-                                            .map(|ret| ret.tap(|r| self.print(r)))
-                                    })
-                                    .collect::<Vec<GrepResult>>()
-                            })
-                            .collect::<Vec<GrepResult>>(),
-                    };
-
-                    if results.is_empty() {
-                        Err(anyhow::anyhow!("not found"))
-                    } else {
-                        Ok(())
-                    }
-                }
-                Err(e) => Err(anyhow::anyhow!(e)),
-            }
+        let matcher = if self.regexp {
+            RegexMatcher::new(self.query.as_str())
         } else {
-            let m = TextMatcher::new(self.query.to_string(), self.exact_match, !self.ignore_case);
-            let results = match self.stdin.as_ref() {
-                Some(stdin) => {
-                    let source = Source::new(
-                        stdin.as_str(),
-                        &m,
-                        GrepOptions {
-                            start_pattern: self.start_pattern.clone(),
-                            end_pattern: self.end_pattern.clone(),
-                            pattern: self.pattern.clone(),
-                        },
-                    );
+            Ok(TextMatcher::new(
+                self.query.to_string(),
+                self.exact_match,
+                !self.ignore_case,
+            ))
+        };
 
-                    source
-                        .grep("")
-                        .map(|r| {
-                            self.print(&r);
-                            vec![r]
-                        })
-                        .unwrap_or(vec![])
-                }
-                None => path_list
-                    .par_iter()
-                    .flat_map(|path| {
-                        self.entries(path)
-                            .par_iter()
-                            .filter_map(|path| {
-                                fs::read_to_string(path)
-                                    .ok()
-                                    .and_then(|content| {
-                                        let source = Source::new(
-                                            content.as_str(),
-                                            &m,
-                                            GrepOptions {
-                                                start_pattern: self.start_pattern.clone(),
-                                                end_pattern: self.end_pattern.clone(),
-                                                pattern: self.pattern.clone(),
-                                            },
-                                        );
+        match matcher {
+            Ok(m) => {
+                let results = match self.stdin.as_ref() {
+                    Some(stdin) => {
+                        let source = Source::new(
+                            stdin.as_str(),
+                            m.clone(),
+                            GrepOptions {
+                                start_pattern: self.start_pattern.clone(),
+                                end_pattern: self.end_pattern.clone(),
+                                pattern: self.pattern.clone(),
+                            },
+                        );
 
-                                        source
-                                            .errors(path.clone(), self.with_warning)
-                                            .or(source.grep(path))
-                                    })
-                                    .map(|ret| ret.tap(|r| self.print(r)))
+                        source
+                            .grep("")
+                            .map(|r| {
+                                self.print(&r);
+                                vec![r]
                             })
-                            .collect::<Vec<GrepResult>>()
-                    })
-                    .collect::<Vec<GrepResult>>(),
-            };
+                            .unwrap_or(vec![])
+                    }
+                    None => path_list
+                        .par_iter()
+                        .flat_map(|path| {
+                            self.entries(path)
+                                .par_iter()
+                                .filter_map(|path| {
+                                    fs::read_to_string(path)
+                                        .ok()
+                                        .and_then(|content| {
+                                            let source = Source::new(
+                                                content.as_str(),
+                                                m.clone(),
+                                                GrepOptions {
+                                                    start_pattern: self.start_pattern.clone(),
+                                                    end_pattern: self.end_pattern.clone(),
+                                                    pattern: self.pattern.clone(),
+                                                },
+                                            );
 
-            if results.is_empty() {
-                Err(anyhow::anyhow!("not found"))
-            } else {
-                Ok(())
+                                            source
+                                                .errors(path.clone(), self.with_warning)
+                                                .or(source.grep(path))
+                                        })
+                                        .map(|ret| ret.tap(|r| self.print(r)))
+                                })
+                                .collect::<Vec<GrepResult>>()
+                        })
+                        .collect::<Vec<GrepResult>>(),
+                };
+
+                if results.is_empty() {
+                    Err(anyhow::anyhow!("not found"))
+                } else {
+                    Ok(())
+                }
             }
+            Err(e) => Err(anyhow::anyhow!(e)),
         }
     }
 
