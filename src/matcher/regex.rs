@@ -10,7 +10,7 @@ pub struct RegexMatcher {
 }
 
 impl RegexMatcher {
-    pub fn new(regex: &str) -> Result<Arc<dyn Matcher>> {
+    pub fn new_matcher(regex: &str) -> Result<Arc<dyn Matcher>> {
         let re = Regex::new(regex)?;
         Ok(Arc::new(RegexMatcher { re }))
     }
@@ -35,7 +35,9 @@ mod tests {
     fn is_regex(#[case] regex: String, #[case] text: String, #[case] expected: bool) {
         assert_eq!(
             expected,
-            RegexMatcher::new(regex.as_str()).unwrap().is_match(text)
+            RegexMatcher::new_matcher(regex.as_str())
+                .unwrap()
+                .is_match(text)
         )
     }
 }

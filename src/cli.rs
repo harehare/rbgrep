@@ -150,13 +150,9 @@ impl Cli {
             None => vec![".".to_string()],
         };
         let matcher = if self.regexp {
-            RegexMatcher::new(self.query.as_str())
+            RegexMatcher::new_matcher(self.query.as_str())
         } else {
-            Ok(TextMatcher::new(
-                self.query.to_string(),
-                self.exact_match,
-                !self.ignore_case,
-            ))
+            TextMatcher::new_matcher(self.query.to_string(), self.exact_match, !self.ignore_case)
         };
 
         match matcher {

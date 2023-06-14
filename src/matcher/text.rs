@@ -1,6 +1,6 @@
-use std::sync::Arc;
-
 use super::Matcher;
+use anyhow::Result;
+use std::sync::Arc;
 
 pub struct TextMatcher {
     query: String,
@@ -9,12 +9,16 @@ pub struct TextMatcher {
 }
 
 impl TextMatcher {
-    pub fn new(query: String, exact_match: bool, case_sensitive: bool) -> Arc<dyn Matcher> {
-        Arc::new(TextMatcher {
+    pub fn new_matcher(
+        query: String,
+        exact_match: bool,
+        case_sensitive: bool,
+    ) -> Result<Arc<dyn Matcher>> {
+        Ok(Arc::new(TextMatcher {
             query,
             exact_match,
             case_sensitive,
-        })
+        }))
     }
 }
 
@@ -53,7 +57,9 @@ mod tests {
     ) {
         assert_eq!(
             expected,
-            TextMatcher::new(query, exact_match, case_sensitive).is_match(text)
+            TextMatcher::new_matcher(query, exact_match, case_sensitive)
+                .unwrap()
+                .is_match(text)
         )
     }
 }

@@ -2116,7 +2116,7 @@ mod tests {
         #[case] text: Option<String>,
         #[case] expected: LineResult,
     ) {
-        let m = TextMatcher::new(query, false, false);
+        let m = TextMatcher::new_matcher(query, false, false).unwrap();
         let source = Source::new(
             text.unwrap_or(expected.line.clone()).as_str(),
             m,
@@ -2204,7 +2204,7 @@ mod tests {
         #[case] pattern: Option<Vec<Node>>,
         #[case] expected: bool,
     ) {
-        let m = TextMatcher::new(query.to_string(), false, false);
+        let m = TextMatcher::new_matcher(query.to_string(), false, false).unwrap();
         let source = Source::new(
             text.as_str(),
             m,
