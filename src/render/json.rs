@@ -8,7 +8,7 @@ use crate::source::FileResult;
 pub struct JsonRender {}
 
 impl Render for JsonRender {
-    fn render<W: io::Write>(&self, w: &mut W, result: &FileResult) -> Result<()> {
+    fn render(&self, w: &mut dyn io::Write, result: &FileResult) -> Result<()> {
         w.write_all(serde_json::to_string(&result)?.as_bytes())
             .map_err(|_| anyhow!("write failed"))
     }
@@ -59,7 +59,7 @@ mod tests {
             results,
         };
         let mut out: Vec<u8> = vec![];
-        json_render.render::<Vec<u8>>(&mut out, &result).unwrap();
+        json_render.render(&mut out, &result).unwrap();
 
         assert_eq!(String::from_utf8(out).unwrap(), expected);
     }
@@ -74,9 +74,6 @@ mod tests {
             results: vec![],
         };
         let mut out = ErrorWrite {};
-        assert_eq!(
-            json_render.render::<ErrorWrite>(&mut out, &result).is_err(),
-            true
-        );
+        assert_eq!(json_render.render(&mut out, &result).is_err(), true);
     }
 }

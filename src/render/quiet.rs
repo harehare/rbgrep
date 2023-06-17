@@ -8,7 +8,7 @@ use crate::source::FileResult;
 pub struct QuietRender {}
 
 impl Render for QuietRender {
-    fn render<W: io::Write>(&self, _w: &mut W, _result: &FileResult) -> Result<()> {
+    fn render(&self, _w: &mut dyn io::Write, _result: &FileResult) -> Result<()> {
         Ok(())
     }
 }

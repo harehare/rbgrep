@@ -1,6 +1,6 @@
 use crate::matcher::{RegexMatcher, TextMatcher};
 use crate::node::Node;
-use crate::render::{self, Render};
+use crate::render::{CountRender, JsonRender, QuietRender, Render, TextRender};
 use crate::source::{GrepOptions, GrepResult, Source};
 use anyhow::Result;
 use clap::Parser;
@@ -8,7 +8,7 @@ use clap_stdin::MaybeStdIn;
 use colored::*;
 use ignore::{overrides::OverrideBuilder, types::TypesBuilder, WalkBuilder};
 use rayon::prelude::*;
-use std::io::StdoutLock;
+use std::sync::Arc;
 use std::{
     env, fs,
     io::{stdout, BufWriter, Write},
@@ -154,6 +154,28 @@ impl Cli {
         } else {
             TextMatcher::new_matcher(self.query.to_string(), self.exact_match, !self.ignore_case)
         };
+        let render: Arc<dyn Render> = if self.count {
+            Arc::new(CountRender {
+                with_filename: !self.no_file_name,
+            })
+        } else if self.quiet {
+            Arc::new(QuietRender {})
+        } else if self.json {
+            Arc::new(JsonRender {})
+        } else {
+            Arc::new(TextRender {
+                with_nodes: self.with_nodes,
+                with_filename: !self.no_file_name,
+                with_lineno: !self.no_line_no,
+                only_matching: self.only_matching,
+                separator: self
+                    .context_separator
+                    .clone()
+                    .unwrap_or(DEFAULT_SEPARATOR.to_string()),
+                before_context: self.context.or(self.before_context),
+                after_context: self.context.or(self.after_context),
+            })
+        };
 
         match matcher {
             Ok(m) => {
@@ -172,7 +194,7 @@ impl Cli {
                         source
                             .grep("")
                             .map(|r| {
-                                self.print(&r);
+                                self.print(&r, render);
                                 vec![r]
                             })
                             .unwrap_or(vec![])
@@ -200,7 +222,7 @@ impl Cli {
                                                 .errors(path.clone(), self.with_warning)
                                                 .or(source.grep(path))
                                         })
-                                        .map(|ret| ret.tap(|r| self.print(r)))
+                                        .map(|ret| ret.tap(|r| self.print(r, render.clone())))
                                 })
                                 .collect::<Vec<GrepResult>>()
                         })
@@ -217,36 +239,12 @@ impl Cli {
         }
     }
 
-    fn print(&self, result: &GrepResult) {
+    fn print(&self, result: &GrepResult, render: Arc<dyn Render>) {
         let mut out = BufWriter::new(stdout().lock());
 
         match result {
             GrepResult::FileResult(r) => {
-                (if self.count {
-                    render::CountRender {
-                        with_filename: !self.no_file_name,
-                    }
-                    .render::<BufWriter<StdoutLock>>(&mut out, r)
-                } else if self.quiet {
-                    render::QuietRender {}.render::<BufWriter<StdoutLock>>(&mut out, r)
-                } else if self.json {
-                    render::JsonRender {}.render::<BufWriter<StdoutLock>>(&mut out, r)
-                } else {
-                    render::TextRender {
-                        with_nodes: self.with_nodes,
-                        with_filename: !self.no_file_name,
-                        with_lineno: !self.no_line_no,
-                        only_matching: self.only_matching,
-                        separator: self
-                            .context_separator
-                            .clone()
-                            .unwrap_or(DEFAULT_SEPARATOR.to_string()),
-                        before_context: self.context.or(self.before_context),
-                        after_context: self.context.or(self.after_context),
-                    }
-                    .render::<BufWriter<StdoutLock>>(&mut out, r)
-                })
-                .expect("write failed");
+                render.render(&mut out, r).expect("write failed");
             }
             GrepResult::FileErrorResult(errors) => {
                 out.write_all(format!("{}\n", errors).as_bytes())

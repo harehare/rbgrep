@@ -11,7 +11,7 @@ pub struct CountRender {
 }
 
 impl Render for CountRender {
-    fn render<W: io::Write>(&self, w: &mut W, result: &FileResult) -> Result<()> {
+    fn render(&self, w: &mut dyn io::Write, result: &FileResult) -> Result<()> {
         (if self.with_filename {
             w.write_all(
                 format!("{}:{}\n", result.filename.magenta(), result.results.len()).as_bytes(),
@@ -59,7 +59,7 @@ mod tests {
             results,
         };
         let mut out: Vec<u8> = vec![];
-        count_render.render::<Vec<u8>>(&mut out, &result).unwrap();
+        count_render.render(&mut out, &result).unwrap();
 
         assert_eq!(String::from_utf8(out).unwrap(), expected);
     }
