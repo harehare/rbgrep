@@ -82,29 +82,27 @@ pub struct FileResult {
 }
 
 #[derive(Debug, Serialize, Clone)]
+pub struct Position {
+    pub row: usize,
+    pub column: usize,
+}
+
+#[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct LineResult {
     pub line: String,
-    pub row: usize,
     pub nodes: Nodes,
-    pub column_start: usize,
-    pub column_end: usize,
+    pub start: Position,
+    pub end: Position,
 }
 
 impl LineResult {
-    pub fn new(
-        row: usize,
-        line: String,
-        nodes: Nodes,
-        column_start: usize,
-        column_end: usize,
-    ) -> Self {
+    pub fn new(line: String, nodes: Nodes, start: Position, end: Position) -> Self {
         LineResult {
-            row,
             line,
             nodes,
-            column_start,
-            column_end,
+            start,
+            end,
         }
     }
 
@@ -118,42 +116,44 @@ impl LineResult {
     }
 
     pub fn to_result_string(&self, only_matching: bool) -> String {
-        let start_index = self
-            .line
-            .char_indices()
-            .nth(self.column_start)
-            .map(|(i, _)| i)
-            .unwrap_or(self.column_start);
-        let end_index = self
-            .line
-            .char_indices()
-            .nth(self.column_end)
-            .map(|(i, _)| i)
-            .unwrap_or(self.column_end);
-        let start_text = &self.line[..start_index];
-        let match_text = &self
-            .line
-            .get(start_index..end_index)
-            .unwrap_or(&self.line[start_index..]);
-
-        let end_index = if match_text.starts_with('"') || match_text.starts_with('\'') {
-            end_index + 2
+        if self.start.row < self.end.row {
+            format!("{}", self.line.red().bold())
         } else {
-            end_index
-        };
-        let end_index = if end_index > self.line.len() - 1 {
-            self.line.len() - 1
-        } else {
-            end_index
-        };
+            let start_index = self
+                .line
+                .char_indices()
+                .nth(self.start.column)
+                .map(|(i, _)| i)
+                .unwrap_or(self.start.column);
+            let end_index = self
+                .line
+                .char_indices()
+                .nth(self.end.column)
+                .map(|(i, _)| i)
+                .unwrap_or(self.end.column);
+            let start_text = &self.line.get(..start_index).unwrap_or(&self.line);
+            let match_text = &self
+                .line
+                .get(start_index..end_index)
+                .unwrap_or(&self.line.get(start_index..).unwrap_or(&self.line));
 
-        let match_text = &self.line[start_index..end_index];
-        let end_text = &self.line[end_index..];
+            let end_index = if match_text.starts_with('"')
+                || match_text.starts_with('\'')
+                || match_text.starts_with(":\"")
+            {
+                end_index + 2
+            } else {
+                end_index
+            };
 
-        if only_matching {
-            format!("{}", match_text.red().bold())
-        } else {
-            format!("{}{}{}", start_text, match_text.red().bold(), end_text,)
+            let match_text = &self.line.get(start_index..end_index).unwrap_or(&self.line);
+            let end_text = &self.line.get(end_index..).unwrap_or(&self.line);
+
+            if only_matching {
+                format!("{}", match_text.red().bold())
+            } else {
+                format!("{}{}{}", start_text, match_text.red().bold(), end_text,)
+            }
         }
     }
 }
@@ -302,11 +302,16 @@ impl Source {
                         .line_col_for_pos(node.expression_l.begin)
                         .map(|pos| {
                             LineResult::new(
-                                pos.0,
                                 self.lines[pos.0].clone(),
                                 parent.append(Node::Arg),
-                                pos.1,
-                                pos.1 + node.name.len(),
+                                Position {
+                                    row: pos.0,
+                                    column: pos.1,
+                                },
+                                Position {
+                                    row: pos.0,
+                                    column: pos.1 + node.name.len(),
+                                },
                             )
                         })
                         .map(|r| vec![r])
@@ -385,11 +390,17 @@ impl Source {
                         .line_col_for_pos(node.expression_l.begin)
                         .map(|pos| {
                             LineResult::new(
-                                pos.0,
                                 self.lines[pos.0].clone(),
                                 parent.append(Node::Blockarg),
-                                pos.1,
-                                pos.1 + node.name.clone().unwrap_or("".to_string()).len(),
+                                Position {
+                                    row: pos.0,
+                                    column: pos.1,
+                                },
+                                Position {
+                                    row: pos.0,
+                                    column: pos.1
+                                        + node.name.clone().unwrap_or("".to_string()).len(),
+                                },
                             )
                         })
                         .map(|r| vec![r])
@@ -473,11 +484,16 @@ impl Source {
                 .then(|| {
                     match input.line_col_for_pos(node.expression_l.begin).map(|pos| {
                         LineResult::new(
-                            pos.0,
                             self.lines[pos.0].clone(),
                             parent.append(Node::Cbase),
-                            pos.1,
-                            pos.1 + "::".len(),
+                            Position {
+                                row: pos.0,
+                                column: pos.1,
+                            },
+                            Position {
+                                row: pos.0,
+                                column: pos.1 + "::".len(),
+                            },
                         )
                     }) {
                         Some(result) => vec![result],
@@ -615,11 +631,16 @@ impl Source {
                         .line_col_for_pos(node.expression_l.begin)
                         .map(|pos| {
                             LineResult::new(
-                                pos.0,
                                 self.lines[pos.0].clone(),
                                 parent.append(Node::EmptyElse),
-                                pos.1,
-                                pos.1 + "else".len(),
+                                Position {
+                                    row: pos.0,
+                                    column: pos.1,
+                                },
+                                Position {
+                                    row: pos.0,
+                                    column: pos.1 + "else".len(),
+                                },
                             )
                         })
                         .map(|r| vec![r])
@@ -635,11 +656,16 @@ impl Source {
                         .line_col_for_pos(node.expression_l.begin)
                         .map(|pos| {
                             LineResult::new(
-                                pos.0,
                                 self.lines[pos.0].clone(),
                                 parent.append(Node::Encoding),
-                                pos.1,
-                                pos.1 + "__ENCODING__".len(),
+                                Position {
+                                    row: pos.0,
+                                    column: pos.1,
+                                },
+                                Position {
+                                    row: pos.0,
+                                    column: pos.1 + "__ENCODING__".len(),
+                                },
                             )
                         })
                         .map(|r| vec![r])
@@ -675,11 +701,16 @@ impl Source {
                 .then(|| {
                     match input.line_col_for_pos(node.expression_l.begin).map(|pos| {
                         LineResult::new(
-                            pos.0,
                             self.lines[pos.0].clone(),
                             parent.append(Node::False),
-                            pos.1,
-                            pos.1 + "false".len(),
+                            Position {
+                                row: pos.0,
+                                column: pos.1,
+                            },
+                            Position {
+                                row: pos.0,
+                                column: pos.1 + "false".len(),
+                            },
                         )
                     }) {
                         Some(result) => vec![result],
@@ -694,11 +725,16 @@ impl Source {
                 .then(|| {
                     match input.line_col_for_pos(node.expression_l.begin).map(|pos| {
                         LineResult::new(
-                            pos.0,
                             self.lines[pos.0].clone(),
                             parent.append(Node::File),
-                            pos.1,
-                            pos.1 + "__FILE__".len(),
+                            Position {
+                                row: pos.0,
+                                column: pos.1,
+                            },
+                            Position {
+                                row: pos.0,
+                                column: pos.1 + "__FILE__".len(),
+                            },
                         )
                     }) {
                         Some(result) => vec![result],
@@ -741,11 +777,16 @@ impl Source {
                         .line_col_for_pos(node.expression_l.begin)
                         .map(|pos| {
                             LineResult::new(
-                                pos.0,
                                 self.lines[pos.0].clone(),
                                 parent.append(Node::ForwardArg),
-                                pos.1,
-                                pos.1 + "...".len(),
+                                Position {
+                                    row: pos.0,
+                                    column: pos.1,
+                                },
+                                Position {
+                                    row: pos.1,
+                                    column: pos.1 + "...".len(),
+                                },
                             )
                         })
                         .map(|r| vec![r])
@@ -761,11 +802,16 @@ impl Source {
                         .line_col_for_pos(node.expression_l.begin)
                         .map(|pos| {
                             LineResult::new(
-                                pos.0,
                                 self.lines[pos.0].clone(),
                                 parent.append(Node::ForwardArg),
-                                pos.1,
-                                pos.1 + "...".len(),
+                                Position {
+                                    row: pos.0,
+                                    column: pos.1,
+                                },
+                                Position {
+                                    row: pos.0,
+                                    column: pos.1 + "...".len(),
+                                },
                             )
                         })
                         .map(|r| vec![r])
@@ -781,11 +827,16 @@ impl Source {
                         .line_col_for_pos(node.expression_l.begin)
                         .map(|pos| {
                             LineResult::new(
-                                pos.0,
                                 self.lines[pos.0].clone(),
                                 parent.append(Node::Gvar),
-                                pos.1,
-                                pos.1 + node.name.len(),
+                                Position {
+                                    row: pos.0,
+                                    column: pos.1,
+                                },
+                                Position {
+                                    row: pos.0,
+                                    column: pos.1 + node.name.len(),
+                                },
                             )
                         })
                         .map(|r| vec![r])
@@ -932,11 +983,16 @@ impl Source {
                 .then(|| {
                     match input.line_col_for_pos(node.expression_l.begin).map(|pos| {
                         LineResult::new(
-                            pos.0,
                             self.lines[pos.0].clone(),
                             parent.append(Node::Ivar),
-                            pos.1,
-                            pos.1 + node.name.len(),
+                            Position {
+                                row: pos.0,
+                                column: pos.1,
+                            },
+                            Position {
+                                row: pos.0,
+                                column: pos.1 + node.name.len(),
+                            },
                         )
                     }) {
                         Some(result) => vec![result],
@@ -973,11 +1029,16 @@ impl Source {
                 .then(|| {
                     match input.line_col_for_pos(node.expression_l.begin).map(|pos| {
                         LineResult::new(
-                            pos.0,
                             self.lines[pos.0].clone(),
                             parent.append(Node::Kwarg),
-                            pos.1,
-                            pos.1 + node.name.len(),
+                            Position {
+                                row: pos.0,
+                                column: pos.1,
+                            },
+                            Position {
+                                row: pos.0,
+                                column: pos.1 + node.name.len(),
+                            },
                         )
                     }) {
                         Some(result) => vec![result],
@@ -998,11 +1059,16 @@ impl Source {
                 .then(|| {
                     match input.line_col_for_pos(node.expression_l.begin).map(|pos| {
                         LineResult::new(
-                            pos.0,
                             self.lines[pos.0].clone(),
                             parent.append(Node::Kwnilarg),
-                            pos.1,
-                            pos.1 + "**nil".len(),
+                            Position {
+                                row: pos.0,
+                                column: pos.1,
+                            },
+                            Position {
+                                row: pos.0,
+                                column: pos.1 + "**nil".len(),
+                            },
                         )
                     }) {
                         Some(result) => vec![result],
@@ -1017,11 +1083,16 @@ impl Source {
                 .then(|| {
                     match input.line_col_for_pos(node.expression_l.begin).map(|pos| {
                         LineResult::new(
-                            pos.0,
                             self.lines[pos.0].clone(),
                             parent.append(Node::Kwoptarg),
-                            pos.1,
-                            pos.1 + node.name.len(),
+                            Position {
+                                row: pos.0,
+                                column: pos.1,
+                            },
+                            Position {
+                                row: pos.0,
+                                column: pos.1 + node.name.len(),
+                            },
                         )
                     }) {
                         Some(result) => itertools::concat(vec![
@@ -1042,11 +1113,16 @@ impl Source {
                             .line_col_for_pos(node.expression_l.begin)
                             .map(|pos| {
                                 LineResult::new(
-                                    pos.0,
                                     self.lines[pos.0].clone(),
                                     parent.append(Node::Kwrestarg),
-                                    pos.1,
-                                    pos.1 + name.len(),
+                                    Position {
+                                        row: pos.0,
+                                        column: pos.1,
+                                    },
+                                    Position {
+                                        row: pos.0,
+                                        column: pos.1 + name.len(),
+                                    },
                                 )
                             })
                             .map(|r| vec![r])
@@ -1068,11 +1144,16 @@ impl Source {
                         .line_col_for_pos(node.expression_l.begin)
                         .map(|pos| {
                             LineResult::new(
-                                pos.0,
                                 self.lines[pos.0].clone(),
                                 parent.append(Node::Lambda),
-                                pos.1,
-                                pos.1 + "->".len(),
+                                Position {
+                                    row: pos.0,
+                                    column: pos.1,
+                                },
+                                Position {
+                                    row: pos.0,
+                                    column: pos.1 + "->".len(),
+                                },
                             )
                         })
                         .map(|r| vec![r])
@@ -1088,11 +1169,16 @@ impl Source {
                         .line_col_for_pos(node.expression_l.begin)
                         .map(|pos| {
                             LineResult::new(
-                                pos.0,
                                 self.lines[pos.0].clone(),
                                 parent.append(Node::Line),
-                                pos.1,
-                                pos.1 + "__LINE__".len(),
+                                Position {
+                                    row: pos.0,
+                                    column: pos.1,
+                                },
+                                Position {
+                                    row: pos.0,
+                                    column: pos.1 + "__LINE__".len(),
+                                },
                             )
                         })
                         .map(|r| vec![r])
@@ -1108,11 +1194,16 @@ impl Source {
                         .line_col_for_pos(node.expression_l.begin)
                         .map(|pos| {
                             LineResult::new(
-                                pos.0,
                                 self.lines[pos.0].clone(),
                                 parent.append(Node::Lvar),
-                                pos.1,
-                                pos.1 + node.name.len(),
+                                Position {
+                                    row: pos.0,
+                                    column: pos.1,
+                                },
+                                Position {
+                                    row: pos.0,
+                                    column: pos.1 + node.name.len(),
+                                },
                             )
                         })
                         .map(|r| vec![r])
@@ -1127,11 +1218,16 @@ impl Source {
                             .line_col_for_pos(node.name_l.begin)
                             .map(|pos| {
                                 LineResult::new(
-                                    pos.0,
                                     self.lines[pos.0].clone(),
                                     parent.append(Node::Lvasgn),
-                                    pos.1,
-                                    pos.1 + node.name.len(),
+                                    Position {
+                                        row: pos.0,
+                                        column: pos.1,
+                                    },
+                                    Position {
+                                        row: pos.0,
+                                        column: pos.1 + node.name.len(),
+                                    },
                                 )
                             })
                             .map(|r| vec![r])
@@ -1176,11 +1272,16 @@ impl Source {
                         .line_col_for_pos(node.expression_l.begin)
                         .map(|pos| {
                             LineResult::new(
-                                pos.0,
                                 self.lines[pos.0].clone(),
                                 parent.append(Node::MatchNilPattern),
-                                pos.1,
-                                pos.1 + "**nil".len(),
+                                Position {
+                                    row: pos.0,
+                                    column: pos.1,
+                                },
+                                Position {
+                                    row: pos.0,
+                                    column: pos.1 + "**nil".len(),
+                                },
                             )
                         })
                         .map(|r| vec![r])
@@ -1212,11 +1313,16 @@ impl Source {
                         .line_col_for_pos(node.expression_l.begin)
                         .map(|pos| {
                             LineResult::new(
-                                pos.0,
                                 self.lines[pos.0].clone(),
                                 parent.append(Node::MatchVar),
-                                pos.1,
-                                pos.1 + node.name.len(),
+                                Position {
+                                    row: pos.0,
+                                    column: pos.1,
+                                },
+                                Position {
+                                    row: pos.0,
+                                    column: pos.1 + node.name.len(),
+                                },
                             )
                         })
                         .map(|r| vec![r])
@@ -1251,11 +1357,16 @@ impl Source {
                             .line_col_for_pos(node.expression_l.begin)
                             .map(|pos| {
                                 LineResult::new(
-                                    pos.0,
                                     self.lines[pos.0].clone(),
                                     parent.append(Node::Next),
-                                    pos.1,
-                                    pos.1 + "next".len(),
+                                    Position {
+                                        row: pos.0,
+                                        column: pos.1,
+                                    },
+                                    Position {
+                                        row: pos.0,
+                                        column: pos.1 + "next".len(),
+                                    },
                                 )
                             })
                             .map(|r| vec![r])
@@ -1276,11 +1387,16 @@ impl Source {
                         .line_col_for_pos(node.expression_l.begin)
                         .map(|pos| {
                             LineResult::new(
-                                pos.0,
                                 self.lines[pos.0].clone(),
                                 parent.append(Node::Nil),
-                                pos.1,
-                                pos.1 + "nil".len(),
+                                Position {
+                                    row: pos.0,
+                                    column: pos.1,
+                                },
+                                Position {
+                                    row: pos.0,
+                                    column: pos.1 + "nil".len(),
+                                },
                             )
                         })
                         .map(|r| vec![r])
@@ -1296,11 +1412,16 @@ impl Source {
                         .line_col_for_pos(node.expression_l.begin)
                         .map(|pos| {
                             LineResult::new(
-                                pos.0,
                                 self.lines[pos.0].clone(),
                                 parent.append(Node::NthRef),
-                                pos.1,
-                                pos.1 + node.name.len(),
+                                Position {
+                                    row: pos.0,
+                                    column: pos.1,
+                                },
+                                Position {
+                                    row: pos.0,
+                                    column: pos.1 + node.name.len(),
+                                },
                             )
                         })
                         .map(|r| vec![r])
@@ -1318,11 +1439,16 @@ impl Source {
                             .line_col_for_pos(node.begin_l.begin)
                             .map(|pos| {
                                 LineResult::new(
-                                    pos.0,
                                     self.lines[pos.0].clone(),
                                     parent.append(Node::Numblock),
-                                    pos.1,
-                                    pos.1 + "nil".len(),
+                                    Position {
+                                        row: pos.0,
+                                        column: pos.1,
+                                    },
+                                    Position {
+                                        row: pos.0,
+                                        column: pos.1 + "nil".len(),
+                                    },
                                 )
                             })
                             .map(|r| vec![r])
@@ -1344,11 +1470,16 @@ impl Source {
                         .line_col_for_pos(node.name_l.begin)
                         .map(|pos| {
                             LineResult::new(
-                                pos.0,
                                 self.lines[pos.0].clone(),
                                 parent.append(Node::Optarg),
-                                pos.1,
-                                pos.1 + node.name.len(),
+                                Position {
+                                    row: pos.0,
+                                    column: pos.1,
+                                },
+                                Position {
+                                    row: pos.0,
+                                    column: pos.1 + node.name.len(),
+                                },
                             )
                         })
                         .map(|r| vec![r])
@@ -1383,11 +1514,16 @@ impl Source {
                             .line_col_for_pos(node.expression_l.begin)
                             .map(|pos| {
                                 LineResult::new(
-                                    pos.0,
                                     self.lines[pos.0].clone(),
                                     parent.append(Node::Postexe),
-                                    pos.1,
-                                    pos.1 + "END".len(),
+                                    Position {
+                                        row: pos.0,
+                                        column: pos.1,
+                                    },
+                                    Position {
+                                        row: pos.0,
+                                        column: pos.1 + "END".len(),
+                                    },
                                 )
                             })
                             .map(|r| vec![r])
@@ -1408,11 +1544,16 @@ impl Source {
                             .line_col_for_pos(node.expression_l.begin)
                             .map(|pos| {
                                 LineResult::new(
-                                    pos.0,
                                     self.lines[pos.0].clone(),
                                     parent.append(Node::Preexe),
-                                    pos.1,
-                                    pos.1 + "BEGIN".len(),
+                                    Position {
+                                        row: pos.0,
+                                        column: pos.1,
+                                    },
+                                    Position {
+                                        row: pos.0,
+                                        column: pos.1 + "BEGIN".len(),
+                                    },
                                 )
                             })
                             .map(|r| vec![r])
@@ -1450,11 +1591,16 @@ impl Source {
                         .line_col_for_pos(node.expression_l.begin)
                         .map(|pos| {
                             LineResult::new(
-                                pos.0,
                                 self.lines[pos.0].clone(),
                                 parent.append(Node::Redo),
-                                pos.1,
-                                pos.1 + "redo".len(),
+                                Position {
+                                    row: pos.0,
+                                    column: pos.1,
+                                },
+                                Position {
+                                    row: pos.0,
+                                    column: pos.1 + "redo".len(),
+                                },
                             )
                         })
                         .map(|r| vec![r])
@@ -1473,11 +1619,16 @@ impl Source {
                                 .line_col_for_pos(node.expression_l.begin)
                                 .map(|pos| {
                                     LineResult::new(
-                                        pos.0,
                                         self.lines[pos.0].clone(),
                                         parent.append(Node::RegOpt),
-                                        pos.1,
-                                        pos.1 + options.len(),
+                                        Position {
+                                            row: pos.0,
+                                            column: pos.1,
+                                        },
+                                        Position {
+                                            row: pos.0,
+                                            column: pos.1 + options.len(),
+                                        },
                                     )
                                 })
                                 .map(|r| vec![r])
@@ -1549,11 +1700,16 @@ impl Source {
                                 .line_col_for_pos(node.expression_l.begin)
                                 .map(|pos| {
                                     LineResult::new(
-                                        pos.0,
                                         self.lines[pos.0].clone(),
                                         parent.append(Node::Restarg),
-                                        pos.1,
-                                        pos.1 + s.len(),
+                                        Position {
+                                            row: pos.0,
+                                            column: pos.1,
+                                        },
+                                        Position {
+                                            row: pos.0,
+                                            column: pos.1 + s.len(),
+                                        },
                                     )
                                 })
                                 .map(|r| vec![r])
@@ -1571,11 +1727,16 @@ impl Source {
                         .line_col_for_pos(node.expression_l.begin)
                         .map(|pos| {
                             LineResult::new(
-                                pos.0,
                                 self.lines[pos.0].clone(),
                                 parent.append(Node::Retry),
-                                pos.1,
-                                pos.1 + "retry".len(),
+                                Position {
+                                    row: pos.0,
+                                    column: pos.1,
+                                },
+                                Position {
+                                    row: pos.0,
+                                    column: pos.1 + "retry".len(),
+                                },
                             )
                         })
                         .map(|r| vec![r])
@@ -1616,11 +1777,16 @@ impl Source {
                         .line_col_for_pos(node.expression_l.begin)
                         .map(|pos| {
                             LineResult::new(
-                                pos.0,
                                 self.lines[pos.0].clone(),
                                 parent.append(Node::Self_),
-                                pos.1,
-                                pos.1 + "self".len(),
+                                Position {
+                                    row: pos.0,
+                                    column: pos.1,
+                                },
+                                Position {
+                                    row: pos.0,
+                                    column: pos.1 + "self".len(),
+                                },
                             )
                         })
                         .map(|r| vec![r])
@@ -1656,11 +1822,16 @@ impl Source {
                         .line_col_for_pos(node.expression_l.begin)
                         .map(|pos| {
                             LineResult::new(
-                                pos.0,
                                 self.lines[pos.0].clone(),
                                 parent.append(Node::Shadowarg),
-                                pos.1,
-                                pos.1 + node.name.len(),
+                                Position {
+                                    row: pos.0,
+                                    column: pos.1,
+                                },
+                                Position {
+                                    row: pos.0,
+                                    column: pos.1 + node.name.len(),
+                                },
                             )
                         })
                         .map(|r| vec![r])
@@ -1689,11 +1860,16 @@ impl Source {
                             .line_col_for_pos(node.expression_l.begin)
                             .map(|pos| {
                                 LineResult::new(
-                                    pos.0,
                                     self.lines[pos.0].clone(),
                                     parent.append(Node::Super),
-                                    pos.1,
-                                    pos.1 + "super".len(),
+                                    Position {
+                                        row: pos.0,
+                                        column: pos.1,
+                                    },
+                                    Position {
+                                        row: pos.0,
+                                        column: pos.1 + "super".len(),
+                                    },
                                 )
                             })
                             .map(|r| vec![r])
@@ -1725,11 +1901,16 @@ impl Source {
                         .line_col_for_pos(node.expression_l.begin)
                         .map(|pos| {
                             LineResult::new(
-                                pos.0,
                                 self.lines[pos.0].clone(),
                                 parent.append(Node::True),
-                                pos.1,
-                                pos.1 + "true".len(),
+                                Position {
+                                    row: pos.0,
+                                    column: pos.1,
+                                },
+                                Position {
+                                    row: pos.0,
+                                    column: pos.1 + "true".len(),
+                                },
                             )
                         })
                         .map(|r| vec![r])
@@ -1817,11 +1998,16 @@ impl Source {
                         .line_col_for_pos(node.expression_l.begin)
                         .map(|pos| {
                             LineResult::new(
-                                pos.0,
                                 self.lines[pos.0].clone(),
                                 parent.append(Node::ZSuper),
-                                pos.1,
-                                pos.1 + "super".len(),
+                                Position {
+                                    row: pos.0,
+                                    column: pos.1,
+                                },
+                                Position {
+                                    row: pos.0,
+                                    column: pos.1 + "super".len(),
+                                },
                             )
                         })
                         .map(|r| vec![r])
@@ -1841,29 +2027,31 @@ impl Source {
     ) -> Option<LineResult> {
         if self.matcher.is_match(text.to_string()) {
             input.line_col_for_pos(loc.begin).and_then(|(row, column)| {
-                input.line_col_for_pos(loc.end).map(|(row2, _)| {
+                input.line_col_for_pos(loc.end).map(|(row2, column2)| {
                     if row == row2 {
                         LineResult::new(
-                            row,
                             self.lines[row].clone(),
                             nodes,
-                            column,
-                            if column + text.len() + offset < self.lines[row].clone().len() {
-                                column + text.len() + offset
-                            } else {
-                                self.lines[row].clone().len()
+                            Position { row, column },
+                            Position {
+                                row,
+                                column: if column + text.len() + offset
+                                    < self.lines[row].clone().len()
+                                {
+                                    column + text.len() + offset
+                                } else {
+                                    self.lines[row].clone().len()
+                                },
                             },
                         )
                     } else {
                         LineResult::new(
-                            row,
                             self.lines[row..row2].join("\n"),
                             nodes,
-                            column,
-                            if column + text.len() + offset < self.lines[row].clone().len() {
-                                column + text.len() + offset
-                            } else {
-                                self.lines[row].clone().len()
+                            Position { row, column },
+                            Position {
+                                row: row2,
+                                column: column2,
                             },
                         )
                     }
@@ -1901,216 +2089,215 @@ mod tests {
 
     #[rstest]
     // class
-    #[case("Class", None, LineResult {line: "class Class < vvv; end".to_string(), row: 0, column_start: 6, column_end: 11, nodes: Nodes::new(vec![Node::Class])})]
-    #[case("Class2", None, LineResult {line: "class Class < vvv; class Class2; end; end".to_string(), row: 0, column_start: 25, column_end: 31, nodes: Nodes::new(vec![Node::Class, Node::Class])})]
-    #[case("SingletonClass", None, LineResult {line: "class << SingletonClass; def test; end end".to_string(), row: 0, column_start: 9, column_end: 23, nodes: Nodes::new(vec![Node::SClass])})]
+    #[case("Class", None, LineResult {line: "class Class < vvv; end".to_string(), start: Position { row: 0, column: 6}, end: Position {row: 0, column: 11}, nodes: Nodes::new(vec![Node::Class])})]
+    #[case("Class2", None, LineResult {line: "class Class < vvv; class Class2; end; end".to_string(), start: Position { row: 0, column: 25}, end: Position { row: 0, column: 31}, nodes: Nodes::new(vec![Node::Class, Node::Class])})]
+    #[case("SingletonClass", None, LineResult {line: "class << SingletonClass; def test; end end".to_string(), start: Position { row: 0, column: 9}, end: Position { row: 0,  column: 23}, nodes: Nodes::new(vec![Node::SClass])})]
     // module
-    #[case("Module", None, LineResult {line: "module Module; def test; end; end".to_string(), row: 0, column_start: 7, column_end: 13, nodes: Nodes::new(vec![Node::Module])})]
+    #[case("Module", None, LineResult {line: "module Module; def test; end; end".to_string(), start: Position { row: 0, column: 7}, end: Position { row: 0, column: 13}, nodes: Nodes::new(vec![Node::Module])})]
     // def
-    #[case("def_test", None, LineResult {line: "def def_test; end".to_string(), row: 0, column_start: 4, column_end: 12, nodes: Nodes::new(vec![Node::Def])})]
-    #[case("def_test", None, LineResult {line: "def def_test; puts 'bar'; end".to_string(), row: 0, column_start: 4, column_end: 12, nodes: Nodes::new(vec![Node::Def])})]
-    #[case("rest_test", None, LineResult {line: "def m(*rest_test); end".to_string(), row: 0, column_start: 6, column_end: 15, nodes: Nodes::new(vec![Node::Def, Node::Args, Node::Restarg])})]
-    #[case("undef_test", None, LineResult {line: "undef undef_test, row: :test".to_string(), row: 0, column_start : 6, column_end : 17, nodes: Nodes::new(vec![Node::Undef, Node::Sym])})]
-    #[case("foo", None, LineResult {line: "def x.foo(args); puts 'v'; end".to_string(), row: 0, column_start: 6, column_end: 9, nodes: Nodes::new(vec![Node::Defs])})]
-    #[case("foo", None, LineResult {line: "def m(**foo); end".to_string(), row: 0, column_start: 6, column_end: 9, nodes: Nodes::new(vec![Node::Def, Node::Args, Node::Kwrestarg])})]
-    #[case("foo", None, LineResult {line: "def m(foo: 1); end".to_string(), row: 0, column_start: 6, column_end: 9, nodes: Nodes::new(vec![Node::Def, Node::Args, Node::Kwoptarg])})]
-    #[case("1", None, LineResult {line: "def m(foo: 1); end".to_string(), row: 0, column_start: 11, column_end: 12, nodes: Nodes::new(vec![Node::Def, Node::Args, Node::Kwoptarg, Node::Int])})]
-    #[case("nil", None, LineResult {line: "def m(**nil); end".to_string(), row: 0, column_start: 6, column_end: 11, nodes: Nodes::new(vec![Node::Def, Node::Args, Node::Kwnilarg])})]
-    #[case("bar", None, LineResult {line: "def foo(bar:); end".to_string(), row: 0, column_start: 8, column_end: 11, nodes: Nodes::new(vec![Node::Def, Node::Args, Node::Kwarg])})]
-    #[case("...", None, LineResult {line: "def m(...); end".to_string(), row: 0, column_start: 6, column_end: 9, nodes: Nodes::new(vec![Node::Def, Node::Args, Node::ForwardArg])})]
+    #[case("def_test", None, LineResult {line: "def def_test; end".to_string(), start: Position { row: 0, column: 4}, end: Position { row: 0, column: 12}, nodes: Nodes::new(vec![Node::Def])})]
+    #[case("def_test", None, LineResult {line: "def def_test; puts 'bar'; end".to_string(), start: Position { row: 0, column: 4}, end: Position { row: 0, column: 12}, nodes: Nodes::new(vec![Node::Def])})]
+    #[case("rest_test", None, LineResult {line: "def m(*rest_test); end".to_string(), start: Position { row: 0, column: 6}, end: Position { row: 0, column: 15}, nodes: Nodes::new(vec![Node::Def, Node::Args, Node::Restarg])})]
+    #[case("undef_test", None, LineResult {line: "undef undef_test, row: :test".to_string(), start: Position { row: 0, column: 6}, end: Position { row: 0, column: 17}, nodes: Nodes::new(vec![Node::Undef, Node::Sym])})]
+    #[case("foo", None, LineResult {line: "def x.foo(args); puts 'v'; end".to_string(), start: Position { row: 0, column: 6}, end: Position { row: 0, column: 9}, nodes: Nodes::new(vec![Node::Defs])})]
+    #[case("foo", None, LineResult {line: "def m(**foo); end".to_string(), start: Position { row: 0, column: 6}, end: Position { row: 0, column: 9}, nodes: Nodes::new(vec![Node::Def, Node::Args, Node::Kwrestarg])})]
+    #[case("foo", None, LineResult {line: "def m(foo: 1); end".to_string(), start: Position { row: 0, column: 6}, end: Position { row: 0, column: 9}, nodes: Nodes::new(vec![Node::Def, Node::Args, Node::Kwoptarg])})]
+    #[case("1", None, LineResult {line: "def m(foo: 1); end".to_string(), start: Position { row: 0, column: 11}, end: Position { row: 0, column: 12}, nodes: Nodes::new(vec![Node::Def, Node::Args, Node::Kwoptarg, Node::Int])})]
+    #[case("nil", None, LineResult {line: "def m(**nil); end".to_string(), start: Position { row: 0, column: 6}, end: Position { row: 0, column: 11}, nodes: Nodes::new(vec![Node::Def, Node::Args, Node::Kwnilarg])})]
+    #[case("bar", None, LineResult {line: "def foo(bar:); end".to_string(), start: Position { row: 0, column: 8}, end: Position { row: 0, column: 11}, nodes: Nodes::new(vec![Node::Def, Node::Args, Node::Kwarg])})]
+    #[case("...", None, LineResult {line: "def m(...); end".to_string(), start: Position { row: 0, column: 6}, end: Position { row: 0, column: 9}, nodes: Nodes::new(vec![Node::Def, Node::Args, Node::ForwardArg])})]
     // sym
-    #[case("sym", None, LineResult {line: "var.try(:sym)".to_string(), row: 0, column_start: 8, column_end: 12, nodes: Nodes::new(vec![Node::Send, Node::Sym])})]
-    #[case("foo", None, LineResult {line: ":\"#{foo}\"".to_string(), row: 0, column_start: 4, column_end: 7, nodes: Nodes::new(vec![Node::Dsym, Node::Begin, Node::Send])})]
+    #[case("sym", None, LineResult {line: "var.try(:sym)".to_string(), start: Position { row: 0, column: 8}, end: Position { row: 0, column: 12}, nodes: Nodes::new(vec![Node::Send, Node::Sym])})]
+    #[case("foo", None, LineResult {line: ":\"#{foo}\"".to_string(), start: Position { row: 0, column: 4}, end: Position { row: 0, column: 7}, nodes: Nodes::new(vec![Node::Dsym, Node::Begin, Node::Send])})]
     // alias
-    #[case("alias_test", None, LineResult {line: "alias :alias_test :new_alias".to_string(), row: 0, column_start: 6, column_end: 17, nodes: Nodes::new(vec![Node::Alias, Node::Sym])})]
+    #[case("alias_test", None, LineResult {line: "alias :alias_test :new_alias".to_string(), start: Position { row: 0, column: 6}, end: Position { row: 0, column: 17}, nodes: Nodes::new(vec![Node::Alias, Node::Sym])})]
     // local var
-    #[case("local_var_test", None, LineResult {line: "local_var_test = 2 + 2".to_string(), row: 0, column_start: 0, column_end: 14, nodes: Nodes::new(vec![Node::Lvasgn])})]
+    #[case("local_var_test", None, LineResult {line: "local_var_test = 2 + 2".to_string(), start: Position { row: 0, column: 0}, end: Position { row: 0, column: 14}, nodes: Nodes::new(vec![Node::Lvasgn])})]
     // send
-    #[case("send_test", None, LineResult {line: "var.send_test()".to_string(), row: 0, column_start: 4, column_end: 13, nodes: Nodes::new(vec![Node::Send])})]
-    #[case("var", None, LineResult {line: "var.send_test()".to_string(), row: 0, column_start: 0, column_end: 3, nodes: Nodes::new(vec![Node::Send, Node::Send])})]
-    #[case("local_var_test", None, LineResult {line: "local_var_test = 2 + 2".to_string(), row: 0, column_start: 0, column_end: 14, nodes: Nodes::new(vec![Node::Lvasgn])})]
-    #[case("op_assign_test", None, LineResult {line: "op_assign_test += 1".to_string(), row: 0, column_start: 0, column_end: 14, nodes: Nodes::new(vec![Node::OpAsgn, Node::Lvasgn])})]
-    #[case("or_assign_test", None, LineResult {line: "or_assign_test ||= 1".to_string(), row: 0, column_start: 0, column_end: 14, nodes: Nodes::new(vec![Node::OrAsgn, Node::Lvasgn])})]
-    #[case("mass_assign_test", None, LineResult {line: "mass_assign_test, test = 1, 2".to_string(), row: 0, column_start: 0, column_end: 16, nodes: Nodes::new(vec![Node::Masgn, Node::Mlhs, Node::Lvasgn])})]
+    #[case("send_test", None, LineResult {line: "var.send_test()".to_string(), start: Position { row: 0, column: 4}, end: Position { row: 0, column: 13}, nodes: Nodes::new(vec![Node::Send])})]
+    #[case("var", None, LineResult {line: "var.send_test()".to_string(), start: Position { row: 0, column: 0}, end: Position { row: 0, column: 3}, nodes: Nodes::new(vec![Node::Send, Node::Send])})]
+    #[case("local_var_test", None, LineResult {line: "local_var_test = 2 + 2".to_string(), start: Position { row: 0, column: 0}, end: Position { row: 0, column: 14}, nodes: Nodes::new(vec![Node::Lvasgn])})]
+    #[case("op_assign_test", None, LineResult {line: "op_assign_test += 1".to_string(), start: Position { row: 0, column: 0}, end: Position { row: 0, column: 14}, nodes: Nodes::new(vec![Node::OpAsgn, Node::Lvasgn])})]
+    #[case("or_assign_test", None, LineResult {line: "or_assign_test ||= 1".to_string(), start: Position { row: 0, column: 0}, end: Position { row: 0, column: 14}, nodes: Nodes::new(vec![Node::OrAsgn, Node::Lvasgn])})]
+    #[case("mass_assign_test", None, LineResult {line: "mass_assign_test, test = 1, 2".to_string(), start: Position { row: 0, column: 0}, end: Position { row: 0, column: 16}, nodes: Nodes::new(vec![Node::Masgn, Node::Mlhs, Node::Lvasgn])})]
     // while
-    #[case("while_test",  None, LineResult {line: "while while_test do; test; end".to_string(), row: 0, column_start: 6, column_end: 16, nodes: Nodes::new(vec![Node::While, Node::Send])})]
-    #[case("while_post_test", None, LineResult {line: "begin while_post_test; end while test".to_string(), row: 0, column_start: 6, column_end: 21, nodes: Nodes::new(vec![Node::WhilePost, Node::KwBegin, Node::Send])})]
+    #[case("while_test",  None, LineResult {line: "while while_test do; test; end".to_string(), start: Position { row: 0, column: 6}, end: Position { row: 0, column: 16}, nodes: Nodes::new(vec![Node::While, Node::Send])})]
+    #[case("while_post_test", None, LineResult {line: "begin while_post_test; end while test".to_string(), start: Position { row: 0, column: 6}, end: Position { row: 0, column: 21}, nodes: Nodes::new(vec![Node::WhilePost, Node::KwBegin, Node::Send])})]
     // until
-    #[case("until_test", None, LineResult {line: "until until_test do; test; end".to_string(), row: 0, column_start: 6, column_end: 16, nodes: Nodes::new(vec![Node::Until, Node::Send])})]
-    #[case("bar", None, LineResult {line: "until foo do; bar; end".to_string(), row: 0, column_start: 14, column_end: 17, nodes: Nodes::new(vec![Node::Until, Node::Send])})]
-    #[case("unless_test", None, LineResult {line: "puts 'test' unless unless_test".to_string(), row: 0, column_start: 19, column_end: 30, nodes: Nodes::new(vec![Node::IfMod, Node::Send])})]
-    #[case("rescue_test", None, LineResult {line: "begin; test; rescue StandardError => rescue_test; true_test; else; else_test; end".to_string(), row: 0, column_start: 37, column_end: 48, nodes: Nodes::new(vec![Node::KwBegin, Node::Rescue, Node::RescueBody, Node::Lvasgn])})]
-    #[case("bar", None, LineResult {line: "foo(**bar)".to_string(), row: 0, column_start: 6, column_end: 9, nodes: Nodes::new(vec![Node::Send, Node::Kwargs, Node::Kwsplat, Node::Send])})]
-    #[case("regex_test", None, LineResult {line: "/regex_test/".to_string(), row: 0, column_start: 1, column_end: 11, nodes: Nodes::new(vec![Node::Regexp, Node::Str])})]
+    #[case("until_test", None, LineResult {line: "until until_test do; test; end".to_string(), start: Position { row: 0, column: 6}, end: Position { row: 0, column: 16}, nodes: Nodes::new(vec![Node::Until, Node::Send])})]
+    #[case("bar", None, LineResult {line: "until foo do; bar; end".to_string(), start: Position { row: 0, column: 14}, end: Position { row: 0, column: 17}, nodes: Nodes::new(vec![Node::Until, Node::Send])})]
+    #[case("unless_test", None, LineResult {line: "puts 'test' unless unless_test".to_string(), start: Position { row: 0, column: 19}, end: Position { row: 0, column: 30}, nodes: Nodes::new(vec![Node::IfMod, Node::Send])})]
+    #[case("rescue_test", None, LineResult {line: "begin; test; rescue StandardError => rescue_test; true_test; else; else_test; end".to_string(),
+                                            start: Position { row: 0, column: 37},
+                                            end: Position { row: 0, column: 48},
+                                            nodes: Nodes::new(vec![Node::KwBegin, Node::Rescue, Node::RescueBody, Node::Lvasgn])})]
+    #[case("bar", None, LineResult {line: "foo(**bar)".to_string(), start: Position { row: 0, column: 6}, end: Position { row: 0, column: 9}, nodes: Nodes::new(vec![Node::Send, Node::Kwargs, Node::Kwsplat, Node::Send])})]
+    #[case("regex_test", None, LineResult {line: "/regex_test/".to_string(), start: Position { row: 0, column: 1}, end: Position { row: 0, column: 11}, nodes: Nodes::new(vec![Node::Regexp, Node::Str])})]
     #[case("pin_test", None, LineResult {line: "pin_test = 1; case foo; in ^pin_test; end".to_string(),
-                                         row: 0,
-                                         column_start: 28,
-                                         column_end: 36,
+                                         start: Position { row: 0, column: 28},
+                                         end: Position { row: 0, column: 36},
                                          nodes: Nodes::new(vec![Node::Begin,
                                                                 Node::CaseMatch,
                                                                 Node::InPattern,
                                                                 Node::Pin,
                                                                 Node::Lvar])})]
-    #[case("global_test", None, LineResult {line: "$global_test = 1000".to_string(), row: 0, column_start: 0, column_end: 12, nodes: Nodes::new(vec![Node::Gvasgn])})]
+    #[case("global_test", None, LineResult {line: "$global_test = 1000".to_string(), start: Position { row: 0, column: 0}, end: Position { row: 0, column: 12}, nodes: Nodes::new(vec![Node::Gvasgn])})]
     // const
-    #[case("CONST", None, LineResult {line: "CONST = 1".to_string(), row: 0, column_start: 0, column_end: 5, nodes: Nodes::new(vec![Node::Casgn])})]
-    #[case("VAR", None, LineResult {line: "VAR::B = 1".to_string(), row: 0, column_start: 0, column_end: 3, nodes: Nodes::new(vec![Node::Casgn])})]
-    #[case("1", None, LineResult {line: "VAR::B = 1".to_string(), row: 0, column_start: 9, column_end: 10, nodes: Nodes::new(vec![Node::Casgn, Node::Int])})]
+    #[case("CONST", None, LineResult {line: "CONST = 1".to_string(), start: Position { row: 0, column: 0}, end: Position { row: 0, column: 5}, nodes: Nodes::new(vec![Node::Casgn])})]
+    #[case("VAR", None, LineResult {line: "VAR::B = 1".to_string(), start: Position { row: 0, column: 0}, end: Position { row: 0, column: 3}, nodes: Nodes::new(vec![Node::Casgn])})]
+    #[case("1", None, LineResult {line: "VAR::B = 1".to_string(), start: Position { row: 0, column: 9}, end: Position { row: 0, column: 10}, nodes: Nodes::new(vec![Node::Casgn, Node::Int])})]
     // instance var
-    #[case("foo", None, LineResult {line: "@foo".to_string(), row: 0, column_start: 0, column_end: 4, nodes: Nodes::new(vec![Node::Ivar])})]
-    #[case("foo", None, LineResult {line: "@foo = 1".to_string(), row: 0, column_start: 0, column_end: 4, nodes: Nodes::new(vec![Node::Ivasgn])})]
-    #[case("1", None, LineResult {line: "@foo = 1".to_string(), row: 0, column_start: 7, column_end: 8, nodes: Nodes::new(vec![Node::Ivasgn, Node::Int])})]
+    #[case("foo", None, LineResult {line: "@foo".to_string(), start: Position { row: 0, column: 0}, end: Position { row: 0, column: 4}, nodes: Nodes::new(vec![Node::Ivar])})]
+    #[case("foo", None, LineResult {line: "@foo = 1".to_string(), start: Position { row: 0, column: 0}, end: Position { row: 0, column: 4}, nodes: Nodes::new(vec![Node::Ivasgn])})]
+    #[case("1", None, LineResult {line: "@foo = 1".to_string(), start: Position { row: 0, column: 7}, end: Position { row: 0, column: 8}, nodes: Nodes::new(vec![Node::Ivasgn, Node::Int])})]
     // if
-    #[case("foo", None, LineResult {line: "if foo; bar; end".to_string(), row: 0, column_start: 3, column_end: 6, nodes: Nodes::new(vec![Node::If, Node::Send])})]
-    #[case("bar", None, LineResult {line: "if foo; else bar; end".to_string(), row: 0, column_start: 13, column_end: 16, nodes: Nodes::new(vec![Node::If, Node::Send])})]
-    #[case("if_test", None, LineResult {line: "if if_test...bar_test; end".to_string(), row: 0, column_start: 3, column_end: 10, nodes: Nodes::new(vec![Node::If, Node::EFlipFlop, Node::Send])})]
-    #[case("test_cond", None, LineResult {line: "test_cond ? test_if_true : test_if_false".to_string(), row: 0, column_start: 0, column_end: 9, nodes: Nodes::new(vec![Node::IfTernary, Node::Send])})]
-    #[case("foo", None, LineResult {line: "if /foo/; end".to_string(), row: 0, column_start: 4, column_end: 7, nodes: Nodes::new(vec![Node::If, Node::MatchCurrentLine, Node::Regexp, Node::Str])})]
-    #[case("bar", None, LineResult {line: "case foo; in pattern if bar; end".to_string(), row: 0, column_start: 24, column_end: 27, nodes: Nodes::new(vec![Node::CaseMatch, Node::InPattern, Node::IfGuard, Node::Send])})]
+    #[case("foo", None, LineResult {line: "if foo; bar; end".to_string(), start: Position { row: 0, column: 3}, end: Position { row: 0, column: 6}, nodes: Nodes::new(vec![Node::If, Node::Send])})]
+    #[case("bar", None, LineResult {line: "if foo; else bar; end".to_string(), start: Position { row: 0, column: 13}, end: Position { row: 0, column: 16}, nodes: Nodes::new(vec![Node::If, Node::Send])})]
+    #[case("if_test", None, LineResult {line: "if if_test...bar_test; end".to_string(), start: Position { row: 0, column: 3}, end: Position { row: 0, column: 10}, nodes: Nodes::new(vec![Node::If, Node::EFlipFlop, Node::Send])})]
+    #[case("test_cond", None, LineResult {line: "test_cond ? test_if_true : test_if_false".to_string(), start: Position { row: 0, column: 0}, end: Position { row: 0, column: 9}, nodes: Nodes::new(vec![Node::IfTernary, Node::Send])})]
+    #[case("foo", None, LineResult {line: "if /foo/; end".to_string(), start: Position { row: 0, column: 4}, end: Position { row: 0, column: 7}, nodes: Nodes::new(vec![Node::If, Node::MatchCurrentLine, Node::Regexp, Node::Str])})]
+    #[case("bar", None, LineResult {line: "case foo; in pattern if bar; end".to_string(), start: Position { row: 0, column: 24}, end: Position { row: 0, column: 27}, nodes: Nodes::new(vec![Node::CaseMatch, Node::InPattern, Node::IfGuard, Node::Send])})]
     // index
-    #[case("foo", None, LineResult {line: "foo[1, row:2, column_start:3]".to_string(), row: 0, column_start: 0, column_end: 3, nodes: Nodes::new(vec![Node::Index, Node::Send])})]
-    #[case("foo", None, LineResult {line: "foo[1, row: 2, column_start: 3] = bar".to_string(), row: 0, column_start: 0, column_end: 3, nodes: Nodes::new(vec![Node::IndexAsgn, Node::Send])})]
+    #[case("foo", None, LineResult {line: "foo[1, row:2, column_start:3]".to_string(), start: Position { row: 0, column: 0}, end: Position { row: 0, column: 3}, nodes: Nodes::new(vec![Node::Index, Node::Send])})]
+    #[case("foo", None, LineResult {line: "foo[1, row: 2, column_start: 3] = bar".to_string(), start: Position { row: 0, column: 0}, end: Position { row: 0, column: 3}, nodes: Nodes::new(vec![Node::IndexAsgn, Node::Send])})]
     // hash
-    #[case("hash_test", None, LineResult {line: "test = { hash_test: 42 }".to_string(), row: 0, column_start: 9, column_end: 19, nodes: Nodes::new(vec![Node::Lvasgn, Node::Hash, Node::Pair, Node::Sym])})]
+    #[case("hash_test", None, LineResult {line: "test = { hash_test: 42 }".to_string(), start: Position { row: 0, column: 9}, end: Position { row: 0, column: 19}, nodes: Nodes::new(vec![Node::Lvasgn, Node::Hash, Node::Pair, Node::Sym])})]
     // class var
-    #[case("foo", None, LineResult {line: "@@foo".to_string(), row: 0, column_start: 0, column_end: 5, nodes: Nodes::new(vec![Node::Cvar])})]
-    #[case("foo", None, LineResult {line: "@@foo = 1".to_string(), row: 0, column_start: 0, column_end: 5, nodes: Nodes::new(vec![Node::Cvasgn])})]
-    #[case("1", None, LineResult {line: "@@foo = 1".to_string(), row: 0, column_start: 8, column_end: 9, nodes: Nodes::new(vec![Node::Cvasgn, Node::Int])})]
+    #[case("foo", None, LineResult {line: "@@foo".to_string(), start: Position { row: 0, column: 0}, end: Position { row: 0, column: 5}, nodes: Nodes::new(vec![Node::Cvar])})]
+    #[case("foo", None, LineResult {line: "@@foo = 1".to_string(), start: Position { row: 0, column: 0}, end: Position { row: 0, column: 5}, nodes: Nodes::new(vec![Node::Cvasgn])})]
+    #[case("1", None, LineResult {line: "@@foo = 1".to_string(), start: Position { row: 0, column: 8}, end: Position { row: 0, column: 9}, nodes: Nodes::new(vec![Node::Cvasgn, Node::Int])})]
     // global var
-    #[case("foo", None, LineResult {line: "$foo".to_string(), row: 0, column_start: 0, column_end: 4, nodes: Nodes::new(vec![Node::Gvar])})]
-    #[case("foo", None, LineResult {line: "$foo = 1".to_string(), row: 0, column_start: 0, column_end: 4, nodes: Nodes::new(vec![Node::Gvasgn])})]
-    #[case("1", None, LineResult {line: "$foo = 1".to_string(), row: 0, column_start: 7, column_end: 8, nodes: Nodes::new(vec![Node::Gvasgn, Node::Int])})]
+    #[case("foo", None, LineResult {line: "$foo".to_string(), start: Position { row: 0, column: 0}, end: Position { row: 0, column: 4}, nodes: Nodes::new(vec![Node::Gvar])})]
+    #[case("foo", None, LineResult {line: "$foo = 1".to_string(), start: Position { row: 0, column: 0}, end: Position { row: 0, column: 4}, nodes: Nodes::new(vec![Node::Gvasgn])})]
+    #[case("1", None, LineResult {line: "$foo = 1".to_string(), start: Position { row: 0, column: 7}, end: Position { row: 0, column: 8}, nodes: Nodes::new(vec![Node::Gvasgn, Node::Int])})]
     // case
-    #[case("case_test", None, LineResult {line: "case case_test; when test; end".to_string(), row: 0, column_start: 5, column_end: 14, nodes: Nodes::new(vec![Node::Case, Node::Send])})]
-    #[case("when_test", None, LineResult {line: "case test; when when_test; end".to_string(), row: 0, column_start: 16, column_end: 25, nodes: Nodes::new(vec![Node::Case, Node::When, Node::Send])})]
+    #[case("case_test", None, LineResult {line: "case case_test; when test; end".to_string(), start: Position { row: 0, column: 5}, end: Position { row: 0, column: 14}, nodes: Nodes::new(vec![Node::Case, Node::Send])})]
+    #[case("when_test", None, LineResult {line: "case test; when when_test; end".to_string(), start: Position { row: 0, column: 16}, end: Position { row: 0, column: 25}, nodes: Nodes::new(vec![Node::Case, Node::When, Node::Send])})]
     #[case("case_in_test", None, LineResult {line: "case foo; in *case_in_test; puts 'v' end".to_string(),
-                                             row: 0,
-                                             column_start: 14,
-                                             column_end: 26,
+                                             start: Position { row: 0, column: 14},
+                                             end: Position { row: 0, column: 26},
                                              nodes: Nodes::new(vec![Node::CaseMatch,
                                                                     Node::InPattern,
                                                                     Node::ArrayPattern,
                                                                     Node::MatchRest,
                                                                     Node::MatchVar])})]
-    #[case("else_test", None, LineResult {line: "case 1; when 1; v; else else_test; end".to_string(), row: 0, column_start: 24, column_end: 33, nodes: Nodes::new(vec![Node::Case, Node::Send])})]
-    #[case("else_match_test", None, LineResult {line: "case 1; in 2; else else_match_test; end".to_string(), row: 0, column_start: 19, column_end: 34, nodes: Nodes::new(vec![Node::CaseMatch, Node::Send])})]
-    #[case("Foo", None, LineResult {line: "case 1; in Foo(42); end".to_string(), row: 0, column_start: 11, column_end: 14, nodes: Nodes::new(vec![Node::CaseMatch, Node::InPattern, Node::ConstPattern])})]
+    #[case("else_test", None, LineResult {line: "case 1; when 1; v; else else_test; end".to_string(), start: Position { row: 0, column: 24}, end: Position { row: 0, column: 33}, nodes: Nodes::new(vec![Node::Case, Node::Send])})]
+    #[case("else_match_test", None, LineResult {line: "case 1; in 2; else else_match_test; end".to_string(), start: Position { row: 0, column: 19}, end: Position { row: 0, column: 34}, nodes: Nodes::new(vec![Node::CaseMatch, Node::Send])})]
+    #[case("Foo", None, LineResult {line: "case 1; in Foo(42); end".to_string(), start: Position { row: 0, column: 11}, end: Position { row: 0, column: 14}, nodes: Nodes::new(vec![Node::CaseMatch, Node::InPattern, Node::ConstPattern])})]
     #[case("bar", None, LineResult {line: "case foo; in [*x, 1 => bar, *y]; end".to_string(),
-                                    row: 0,
-                                    column_start: 23,
-                                    column_end: 26,
+                                    start: Position { row: 0, column: 23},
+                                    end: Position { row: 0, column: 26},
                                     nodes: Nodes::new(vec![Node::CaseMatch,
                                                            Node::InPattern,
                                                            Node::FindPattern,
                                                            Node::MatchAs,
                                                            Node::MatchVar])})]
     #[case("1", None, LineResult {line: "case foo; in [*x, 1 => bar, *y]; end".to_string(),
-                                  row: 0,
-                                  column_start: 18,
-                                  column_end: 19,
+                                  start: Position { row: 0, column: 18},
+                                  end: Position { row: 0, column: 19},
                                   nodes: Nodes::new(vec![Node::CaseMatch,
                                                          Node::InPattern,
                                                          Node::FindPattern,
                                                          Node::MatchAs,
                                                          Node::Int])})]
     // proc
-    #[case("proc_test", None, LineResult {line: "proc_test = ->(word) { puts word }".to_string(), row: 0, column_start: 0, column_end: 9, nodes: Nodes::new(vec![Node::Lvasgn])})]
-    #[case("->", None, LineResult {line: "proc_test = ->(word) { puts word }".to_string(), row: 0, column_start: 12, column_end: 14, nodes: Nodes::new(vec![Node::Lvasgn, Node::Block, Node::Lambda])})]
+    #[case("proc_test", None, LineResult {line: "proc_test = ->(word) { puts word }".to_string(), start: Position { row: 0, column: 0}, end: Position { row: 0, column: 9}, nodes: Nodes::new(vec![Node::Lvasgn])})]
+    #[case("->", None, LineResult {line: "proc_test = ->(word) { puts word }".to_string(), start: Position { row: 0, column: 12}, end: Position { row: 0, column: 14}, nodes: Nodes::new(vec![Node::Lvasgn, Node::Block, Node::Lambda])})]
     // int
-    #[case("10", None, LineResult {line: "int_test = 10".to_string(), row: 0, column_start: 11, column_end: 13, nodes: Nodes::new(vec![Node::Lvasgn, Node::Int])})]
+    #[case("10", None, LineResult {line: "int_test = 10".to_string(), start: Position { row: 0, column: 11}, end: Position { row: 0, column: 13}, nodes: Nodes::new(vec![Node::Lvasgn, Node::Int])})]
     // float
-    #[case("1.1", None, LineResult {line: "foo = 1.1".to_string(), row: 0, column_start: 6, column_end: 9, nodes: Nodes::new(vec![Node::Lvasgn, Node::Float])})]
+    #[case("1.1", None, LineResult {line: "foo = 1.1".to_string(), start: Position { row: 0, column: 6}, end: Position { row: 0, column: 9}, nodes: Nodes::new(vec![Node::Lvasgn, Node::Float])})]
     // rational
-    #[case("-1r", None, LineResult {line: "rational_test = -1r".to_string(), row: 0, column_start: 16, column_end: 19, nodes: Nodes::new(vec![Node::Lvasgn, Node::Rational])})]
+    #[case("-1r", None, LineResult {line: "rational_test = -1r".to_string(), start: Position { row: 0, column: 16}, end: Position { row: 0, column: 19}, nodes: Nodes::new(vec![Node::Lvasgn, Node::Rational])})]
     // block pass
-    #[case("block_test", None, LineResult {line: "foo(&block_test)".to_string(), row: 0, column_start: 5, column_end: 15, nodes: Nodes::new(vec![Node::Send, Node::BlockPass, Node::Send])})]
+    #[case("block_test", None, LineResult {line: "foo(&block_test)".to_string(), start: Position { row: 0, column: 5}, end: Position { row: 0, column: 15}, nodes: Nodes::new(vec![Node::Send, Node::BlockPass, Node::Send])})]
     // block args
-    #[case("foo", None, LineResult {line: "def m(&foo); end".to_string(), row: 0, column_start: 6, column_end: 9, nodes: Nodes::new(vec![Node::Def, Node::Args, Node::Blockarg])})]
+    #[case("foo", None, LineResult {line: "def m(&foo); end".to_string(), start: Position { row: 0, column: 6}, end: Position { row: 0, column: 9}, nodes: Nodes::new(vec![Node::Def, Node::Args, Node::Blockarg])})]
     // break
-    #[case("break_test", None, LineResult {line: "break :break_test".to_string(), row: 0, column_start: 6, column_end: 17, nodes: Nodes::new(vec![Node::Break, Node::Sym])})]
+    #[case("break_test", None, LineResult {line: "break :break_test".to_string(), start: Position { row: 0, column: 6}, end: Position { row: 0, column: 17}, nodes: Nodes::new(vec![Node::Break, Node::Sym])})]
     // csend
-    #[case("csend_test", None, LineResult {line: "foo&.csend_test(42)".to_string(), row: 0, column_start: 5, column_end: 15, nodes: Nodes::new(vec![Node::CSend])})]
+    #[case("csend_test", None, LineResult {line: "foo&.csend_test(42)".to_string(), start: Position { row: 0, column: 5}, end: Position { row: 0, column: 15}, nodes: Nodes::new(vec![Node::CSend])})]
     // super
-    #[case("super", None, LineResult {line: "super".to_string(), row: 0, column_start: 0, column_end: 5, nodes: Nodes::new(vec![Node::ZSuper])})]
+    #[case("super", None, LineResult {line: "super".to_string(), start: Position { row: 0, column: 0}, end: Position { row: 0, column: 5}, nodes: Nodes::new(vec![Node::ZSuper])})]
     // xstr
-    #[case("xstr_test", None, LineResult {line: "`sh #{xstr_test}`".to_string(), row: 0, column_start: 6, column_end: 15, nodes: Nodes::new(vec![Node::Xstr, Node::Begin, Node::Send])})]
+    #[case("xstr_test", None, LineResult {line: "`sh #{xstr_test}`".to_string(), start: Position { row: 0, column: 6}, end: Position { row: 0, column: 15}, nodes: Nodes::new(vec![Node::Xstr, Node::Begin, Node::Send])})]
     // yield
-    #[case("yield_test", None, LineResult {line: "yield yield_test, row: foo".to_string(), row: 0, column_start: 6, column_end: 16, nodes: Nodes::new(vec![Node::Yield, Node::Send])})]
+    #[case("yield_test", None, LineResult {line: "yield yield_test, row: foo".to_string(), start: Position { row: 0, column: 6}, end: Position { row: 0, column: 16}, nodes: Nodes::new(vec![Node::Yield, Node::Send])})]
     // true
-    #[case("true", None, LineResult {line: "value = true".to_string(), row: 0, column_start: 8, column_end: 12, nodes: Nodes::new(vec![Node::Lvasgn, Node::True])})]
+    #[case("true", None, LineResult {line: "value = true".to_string(), start: Position { row: 0, column: 8}, end: Position { row: 0, column: 12}, nodes: Nodes::new(vec![Node::Lvasgn, Node::True])})]
     // super
-    #[case("super", None, LineResult {line: "super(1, row: 2)".to_string(), row: 0, column_start: 0, column_end: 5, nodes: Nodes::new(vec![Node::Super])})]
+    #[case("super", None, LineResult {line: "super(1, row: 2)".to_string(), start: Position { row: 0, column: 0}, end: Position { row: 0, column: 5}, nodes: Nodes::new(vec![Node::Super])})]
     // shadowarg
-    #[case("shadow", None, LineResult {line: "proc { |;shadow|}".to_string(), row: 0, column_start: 9, column_end: 15, nodes: Nodes::new(vec![Node::Block, Node::Args, Node::Shadowarg])})]
+    #[case("shadow", None, LineResult {line: "proc { |;shadow|}".to_string(), start: Position { row: 0, column: 9}, end: Position { row: 0, column: 15}, nodes: Nodes::new(vec![Node::Block, Node::Args, Node::Shadowarg])})]
     // self
-    #[case("self", None, LineResult {line: "self.vvvv".to_string(), row: 0, column_start: 0, column_end: 4, nodes: Nodes::new(vec![Node::Send, Node::Self_])})]
+    #[case("self", None, LineResult {line: "self.vvvv".to_string(), start: Position { row: 0, column: 0}, end: Position { row: 0, column: 4}, nodes: Nodes::new(vec![Node::Send, Node::Self_])})]
     // splat
-    #[case("splat", None, LineResult {line: "foo(*splat)".to_string(), row: 0, column_start: 5, column_end: 10, nodes: Nodes::new(vec![Node::Send, Node::Splat, Node::Send])})]
+    #[case("splat", None, LineResult {line: "foo(*splat)".to_string(), start: Position { row: 0, column: 5}, end: Position { row: 0, column: 10}, nodes: Nodes::new(vec![Node::Send, Node::Splat, Node::Send])})]
     // return
-    #[case("ret", None, LineResult {line: "return ret, row: 1".to_string(), row: 0, column_start: 7, column_end: 10, nodes: Nodes::new(vec![Node::Return, Node::Arg, Node::Send])})]
+    #[case("ret", None, LineResult {line: "return ret, row: 1".to_string(), start: Position { row: 0, column: 7}, end: Position { row: 0, column: 10}, nodes: Nodes::new(vec![Node::Return, Node::Arg, Node::Send])})]
     // retry
-    #[case("retry", None, LineResult {line: "retry if try < vv".to_string(), row: 0, column_start: 0, column_end: 5, nodes: Nodes::new(vec![Node::IfMod, Node::Retry])})]
+    #[case("retry", None, LineResult {line: "retry if try < vv".to_string(), start: Position { row: 0, column: 0}, end: Position { row: 0, column: 5}, nodes: Nodes::new(vec![Node::IfMod, Node::Retry])})]
     // regexp
-    #[case("regex", None, LineResult {line: "/regex/mix".to_string(), row: 0, column_start: 1, column_end: 6, nodes: Nodes::new(vec![Node::Regexp, Node::Str])})]
-    #[case("imx", None, LineResult {line: "/regex/mix".to_string(), row: 0, column_start: 7, column_end: 10, nodes: Nodes::new(vec![Node::Regexp, Node::RegOpt])})]
+    #[case("regex", None, LineResult {line: "/regex/mix".to_string(), start: Position { row: 0, column: 1}, end: Position { row: 0, column: 6}, nodes: Nodes::new(vec![Node::Regexp, Node::Str])})]
+    #[case("imx", None, LineResult {line: "/regex/mix".to_string(), start: Position { row: 0, column: 7}, end: Position { row: 0, column: 10}, nodes: Nodes::new(vec![Node::Regexp, Node::RegOpt])})]
     // redo
-    #[case("redo", None, LineResult {line: "redo if test".to_string(), row: 0, column_start: 0, column_end: 4, nodes: Nodes::new(vec![Node::IfMod, Node::Redo])})]
+    #[case("redo", None, LineResult {line: "redo if test".to_string(), start: Position { row: 0, column: 0}, end: Position { row: 0, column: 4}, nodes: Nodes::new(vec![Node::IfMod, Node::Redo])})]
     // proc
-    #[case("proc1", None, LineResult {line: "proc { |(proc1, proc2)| }".to_string(), row: 0, column_start: 9, column_end: 14, nodes: Nodes::new(vec![Node::Block, Node::Args, Node::Procarg0, Node::Arg])})]
+    #[case("proc1", None, LineResult {line: "proc { |(proc1, proc2)| }".to_string(), start: Position { row: 0, column: 9}, end: Position { row: 0, column: 14}, nodes: Nodes::new(vec![Node::Block, Node::Args, Node::Procarg0, Node::Arg])})]
     // preexe
-    #[case("BEGIN", None, LineResult {line: "BEGIN { 1 }".to_string(), row: 0, column_start: 0, column_end: 5, nodes: Nodes::new(vec![Node::Preexe])})]
+    #[case("BEGIN", None, LineResult {line: "BEGIN { 1 }".to_string(), start: Position { row: 0, column: 0}, end: Position { row: 0, column: 5}, nodes: Nodes::new(vec![Node::Preexe])})]
     // postexe
-    #[case("END", None, LineResult {line: "END { 1 }".to_string(), row: 0, column_start: 0, column_end: 3, nodes: Nodes::new(vec![Node::Postexe])})]
+    #[case("END", None, LineResult {line: "END { 1 }".to_string(), start: Position { row: 0, column: 0}, end: Position { row: 0, column: 3}, nodes: Nodes::new(vec![Node::Postexe])})]
     // and
-    #[case("bar", None, LineResult {line: "foo && bar".to_string(), row: 0, column_start: 7, column_end: 10, nodes: Nodes::new(vec![Node::And, Node::Send])})]
-    #[case("foo", None, LineResult {line: "foo &&= bar".to_string(), row: 0, column_start: 0, column_end: 3, nodes: Nodes::new(vec![Node::AndAsgn, Node::Lvasgn])})]
+    #[case("bar", None, LineResult {line: "foo && bar".to_string(), start: Position { row: 0, column: 7}, end: Position { row: 0, column: 10}, nodes: Nodes::new(vec![Node::And, Node::Send])})]
+    #[case("foo", None, LineResult {line: "foo &&= bar".to_string(), start: Position { row: 0, column: 0}, end: Position { row: 0, column: 3}, nodes: Nodes::new(vec![Node::AndAsgn, Node::Lvasgn])})]
     // or
-    #[case("bar", None, LineResult {line: "foo || bar".to_string(), row: 0, column_start: 7, column_end: 10, nodes: Nodes::new(vec![Node::Or, Node::Send])})]
+    #[case("bar", None, LineResult {line: "foo || bar".to_string(), start: Position { row: 0, column: 7}, end: Position { row: 0, column: 10}, nodes: Nodes::new(vec![Node::Or, Node::Send])})]
     // optarg
-    #[case("bar", None, LineResult {line: "def foo(bar = 1); end".to_string(), row: 0, column_start: 8, column_end: 11, nodes: Nodes::new(vec![Node::Def, Node::Args, Node::Optarg])})]
+    #[case("bar", None, LineResult {line: "def foo(bar = 1); end".to_string(), start: Position { row: 0, column: 8}, end: Position { row: 0, column: 11}, nodes: Nodes::new(vec![Node::Def, Node::Args, Node::Optarg])})]
     // num block
-    #[case("_2", None, LineResult {line: "proc { _2 }".to_string(), row: 0, column_start: 5, column_end: 8, nodes: Nodes::new(vec![Node::Numblock])})]
+    #[case("_2", None, LineResult {line: "proc { _2 }".to_string(), start: Position { row: 0, column: 5}, end: Position { row: 0, column: 8}, nodes: Nodes::new(vec![Node::Numblock])})]
     // nthref
-    #[case("$1", None, LineResult {line: "puts \"#$1\"".to_string(), row: 0, column_start: 7, column_end: 8, nodes: Nodes::new(vec![Node::Send, Node::Dstr, Node::NthRef])})]
+    #[case("$1", None, LineResult {line: "puts \"#$1\"".to_string(), start: Position { row: 0, column: 7}, end: Position { row: 0, column: 8}, nodes: Nodes::new(vec![Node::Send, Node::Dstr, Node::NthRef])})]
     // nil
-    #[case("nil", None, LineResult {line: "v = nil".to_string(), row: 0, column_start: 4, column_end: 7, nodes: Nodes::new(vec![Node::Lvasgn, Node::Nil])})]
+    #[case("nil", None, LineResult {line: "v = nil".to_string(), start: Position { row: 0, column: 4}, end: Position { row: 0, column: 7}, nodes: Nodes::new(vec![Node::Lvasgn, Node::Nil])})]
     // next
-    #[case("next", None, LineResult {line: "next 1".to_string(), row: 0, column_start: 0, column_end: 4, nodes: Nodes::new(vec![Node::Next])})]
+    #[case("next", None, LineResult {line: "next 1".to_string(), start: Position { row: 0, column: 0}, end: Position { row: 0, column: 4}, nodes: Nodes::new(vec![Node::Next])})]
     // backref
-    #[case("$+", None, LineResult {line: "$1, $+".to_string(), row: 0, column_start: 4, column_end: 6, nodes: Nodes::new(vec![Node::BackRef])})]
+    #[case("$+", None, LineResult {line: "$1, $+".to_string(), start: Position { row: 0, column: 4}, end: Position { row: 0, column: 6}, nodes: Nodes::new(vec![Node::BackRef])})]
     // cbase
-    #[case("::", None, LineResult {line: "::X = 10".to_string(), row: 0, column_start: 0, column_end: 2, nodes: Nodes::new(vec![Node::Casgn, Node::Cbase])})]
+    #[case("::", None, LineResult {line: "::X = 10".to_string(), start: Position { row: 0, column: 0}, end: Position { row: 0, column: 2}, nodes: Nodes::new(vec![Node::Casgn, Node::Cbase])})]
     // complex
-    #[case("4i", None, LineResult {line: "3 + 4i".to_string(), row: 0, column_start: 4, column_end: 6, nodes: Nodes::new(vec![Node::Send, Node::Complex])})]
+    #[case("4i", None, LineResult {line: "3 + 4i".to_string(), start: Position { row: 0, column: 4}, end: Position { row: 0, column: 6}, nodes: Nodes::new(vec![Node::Send, Node::Complex])})]
     // defined
-    #[case("foo", None, LineResult {line: "defined?(foo)".to_string(), row: 0, column_start: 9, column_end: 12, nodes: Nodes::new(vec![Node::Defined, Node::Send])})]
+    #[case("foo", None, LineResult {line: "defined?(foo)".to_string(), start: Position { row: 0, column: 9}, end: Position { row: 0, column: 12}, nodes: Nodes::new(vec![Node::Defined, Node::Send])})]
     // empty else
-    #[case("else", None, LineResult {line: "case foo; in 1; else; end".to_string(), row: 0, column_start: 16, column_end: 20, nodes: Nodes::new(vec![Node::CaseMatch, Node::EmptyElse])})]
+    #[case("else", None, LineResult {line: "case foo; in 1; else; end".to_string(), start: Position { row: 0, column: 16}, end: Position { row: 0, column: 20}, nodes: Nodes::new(vec![Node::CaseMatch, Node::EmptyElse])})]
     // __ENCODING__
-    #[case("__ENCODING__", None, LineResult {line: "__ENCODING__".to_string(), row: 0, column_start: 0, column_end: 12, nodes: Nodes::new(vec![Node::Encoding])})]
+    #[case("__ENCODING__", None, LineResult {line: "__ENCODING__".to_string(), start: Position { row: 0, column: 0}, end: Position { row: 0, column: 12}, nodes: Nodes::new(vec![Node::Encoding])})]
     // __FILE__
-    #[case("__FILE__", None, LineResult {line: "__FILE__".to_string(), row: 0, column_start: 0, column_end: 8, nodes: Nodes::new(vec![Node::File])})]
+    #[case("__FILE__", None, LineResult {line: "__FILE__".to_string(), start: Position { row: 0, column: 0}, end: Position { row: 0, column: 8}, nodes: Nodes::new(vec![Node::File])})]
     // __LINE__
-    #[case("__LINE__", None, LineResult {line: "__LINE__".to_string(), row: 0, column_start: 0, column_end: 8, nodes: Nodes::new(vec![Node::Line])})]
+    #[case("__LINE__", None, LineResult {line: "__LINE__".to_string(), start: Position { row: 0, column: 0}, end: Position { row: 0, column: 8}, nodes: Nodes::new(vec![Node::Line])})]
     // ensure
-    #[case("bar", None, LineResult {line: "begin; foo; ensure; bar; end".to_string(), row: 0, column_start: 20, column_end: 23, nodes: Nodes::new(vec![Node::KwBegin, Node::Ensure, Node::Send])})]
+    #[case("bar", None, LineResult {line: "begin; foo; ensure; bar; end".to_string(), start: Position { row: 0, column: 20}, end: Position { row: 0, column: 23}, nodes: Nodes::new(vec![Node::KwBegin, Node::Ensure, Node::Send])})]
     // erange
-    #[case("1", None, LineResult {line: "1...3".to_string(), row: 0, column_start: 0, column_end: 1, nodes: Nodes::new(vec![Node::Erange, Node::Int])})]
-    #[case("2", None, LineResult {line: "2..4".to_string(), row: 0, column_start: 0, column_end: 1, nodes: Nodes::new(vec![Node::Irange, Node::Int])})]
+    #[case("1", None, LineResult {line: "1...3".to_string(), start: Position { row: 0, column: 0}, end: Position { row: 0, column: 1}, nodes: Nodes::new(vec![Node::Erange, Node::Int])})]
+    #[case("2", None, LineResult {line: "2..4".to_string(), start: Position { row: 0, column: 0}, end: Position { row: 0, column: 1}, nodes: Nodes::new(vec![Node::Irange, Node::Int])})]
     // IFlipFlop
-    #[case("foo", None, LineResult {line: "if foo..bar; end".to_string(), row: 0, column_start: 3, column_end: 6, nodes: Nodes::new(vec![Node::If, Node::IFlipFlop, Node::Send])})]
-    #[case("bar", None, LineResult {line: "if foo..bar; end".to_string(), row: 0, column_start: 8, column_end: 11, nodes: Nodes::new(vec![Node::If, Node::IFlipFlop, Node::Send])})]
+    #[case("foo", None, LineResult {line: "if foo..bar; end".to_string(), start: Position { row: 0, column: 3}, end: Position { row: 0, column: 6}, nodes: Nodes::new(vec![Node::If, Node::IFlipFlop, Node::Send])})]
+    #[case("bar", None, LineResult {line: "if foo..bar; end".to_string(), start: Position { row: 0, column: 8}, end: Position { row: 0, column: 11}, nodes: Nodes::new(vec![Node::If, Node::IFlipFlop, Node::Send])})]
     // false
-    #[case("false", None, LineResult {line: "foo = false".to_string(), row: 0, column_start: 6, column_end: 11, nodes: Nodes::new(vec![Node::Lvasgn, Node::False])})]
+    #[case("false", None, LineResult {line: "foo = false".to_string(), start: Position { row: 0, column: 6}, end: Position { row: 0, column: 11}, nodes: Nodes::new(vec![Node::Lvasgn, Node::False])})]
     // for
-    #[case("foo", None, LineResult {line: "for foo in bar; puts 'v'; end".to_string(), row: 0, column_start: 4, column_end: 7, nodes: Nodes::new(vec![Node::For, Node::Lvasgn])})]
+    #[case("foo", None, LineResult {line: "for foo in bar; puts 'v'; end".to_string(), start: Position { row: 0, column: 4}, end: Position { row: 0, column: 7}, nodes: Nodes::new(vec![Node::For, Node::Lvasgn])})]
     // match pattern
-    #[case("foo", None, LineResult {line: "foo in pattern".to_string(), row: 0, column_start: 0, column_end: 3, nodes: Nodes::new(vec![Node::MatchPatternP, Node::Send])})]
-    #[case("foo", None, LineResult {line: "foo => pattern".to_string(), row: 0, column_start: 0, column_end: 3, nodes: Nodes::new(vec![Node::MatchPattern, Node::Send])})]
-    #[case("bar", None, LineResult {line: "foo in foo | bar".to_string(), row: 0, column_start: 13, column_end: 16, nodes: Nodes::new(vec![Node::MatchPatternP, Node::MatchAlt, Node::MatchVar])})]
-    #[case("nil", None, LineResult {line: "foo() in **nil".to_string(), row: 0, column_start: 9, column_end: 14, nodes: Nodes::new(vec![Node::MatchPatternP, Node::HashPattern, Node::MatchNilPattern])})]
+    #[case("foo", None, LineResult {line: "foo in pattern".to_string(), start: Position { row: 0, column: 0}, end: Position { row: 0, column: 3}, nodes: Nodes::new(vec![Node::MatchPatternP, Node::Send])})]
+    #[case("foo", None, LineResult {line: "foo => pattern".to_string(), start: Position { row: 0, column: 0}, end: Position { row: 0, column: 3}, nodes: Nodes::new(vec![Node::MatchPattern, Node::Send])})]
+    #[case("bar", None, LineResult {line: "foo in foo | bar".to_string(), start: Position { row: 0, column: 13}, end: Position { row: 0, column: 16}, nodes: Nodes::new(vec![Node::MatchPatternP, Node::MatchAlt, Node::MatchVar])})]
+    #[case("nil", None, LineResult {line: "foo() in **nil".to_string(), start: Position { row: 0, column: 9}, end: Position { row: 0, column: 14}, nodes: Nodes::new(vec![Node::MatchPatternP, Node::HashPattern, Node::MatchNilPattern])})]
     // heredoc
-    #[case("xhere_test", Some("<<-`HERE`\n  a   #{xhere_test} \nHERE".to_string()), LineResult {line: "  a   #{xhere_test} ".to_string(), row: 1, column_start: 8, column_end: 18, nodes: Nodes::new(vec![Node::XHeredoc, Node::Begin, Node::Send])})]
+    #[case("xhere_test", Some("<<-`HERE`\n  a   #{xhere_test} \nHERE".to_string()), LineResult {line: "  a   #{xhere_test} ".to_string(), start: Position { row: 1, column: 8}, end: Position { row: 1, column: 18}, nodes: Nodes::new(vec![Node::XHeredoc, Node::Begin, Node::Send])})]
     fn grep_source(
         #[case] query: String,
         #[case] text: Option<String>,
@@ -2129,12 +2316,12 @@ mod tests {
 
         match source.grep("").unwrap() {
             GrepResult::FileResult(r) => {
-                assert_eq!(r.results.last().unwrap().row, expected.row);
+                assert_eq!(r.results.last().unwrap().start.row, expected.start.row);
                 assert_eq!(
-                    r.results.last().unwrap().column_start,
-                    expected.column_start
+                    r.results.last().unwrap().start.column,
+                    expected.start.column
                 );
-                assert_eq!(r.results.last().unwrap().column_end, expected.column_end);
+                assert_eq!(r.results.last().unwrap().end.column, expected.end.column);
                 assert_eq!(r.results.last().unwrap().line, expected.line);
                 assert_eq!(r.results.last().unwrap().nodes, expected.nodes);
             }
@@ -2230,7 +2417,13 @@ mod tests {
     )]
     fn test_to_nodes_string(#[case] nodes: Vec<Node>, #[case] expected: String) {
         assert_eq!(
-            LineResult::new(0, "".to_string(), Nodes::new(nodes), 0, 0).to_nodes_string(),
+            LineResult::new(
+                "".to_string(),
+                Nodes::new(nodes),
+                Position { row: 0, column: 0 },
+                Position { row: 0, column: 0 }
+            )
+            .to_nodes_string(),
             expected
         );
     }

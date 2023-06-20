@@ -23,8 +23,8 @@ impl Render for TextRender {
             .iter()
             .map(|r| {
                 let before = self.before_context.map(|b| {
-                    let start = if r.row < b { 0 } else { r.row - b };
-                    let before_context_lines = &result.lines[start..r.row];
+                    let start = if r.start.row < b { 0 } else { r.start.row - b };
+                    let before_context_lines = &result.lines[start..r.start.row];
 
                     if self.with_filename {
                         before_context_lines
@@ -38,8 +38,8 @@ impl Render for TextRender {
                                         .then(|| format!(
                                             "{}{}",
                                             ":".cyan(),
-                                            if r.row > (b - i) {
-                                                r.row - (b - i) + 1
+                                            if r.start.row > (b - i) {
+                                                r.start.row - (b - i) + 1
                                             } else {
                                                 1
                                             }
@@ -70,7 +70,7 @@ impl Render for TextRender {
                         "{}{} {}\n",
                         result.filename.magenta(),
                         self.with_lineno
-                            .then(|| format!("{}{}", ":".cyan(), (r.row + 1).to_string().cyan()))
+                            .then(|| format!("{}{}", ":".cyan(), (r.start.row + 1).to_string().cyan()))
                             .unwrap_or("".to_string()),
                         r.to_result_string(self.only_matching),
                     ))
@@ -79,10 +79,10 @@ impl Render for TextRender {
                 };
 
                 let after = self.after_context.map(|a| {
-                    let after_context_lines = if r.row + a < result.lines.len() - 1 {
-                        &result.lines[(r.row + 1)..(r.row + a + 1)]
+                    let after_context_lines = if r.start.row + a < result.lines.len() - 1 {
+                        &result.lines[(r.start.row + 1)..(r.start.row + a + 1)]
                     } else {
-                        &result.lines[(r.row + 1)..]
+                        &result.lines[(r.start.row + 1)..]
                     };
 
                     if self.with_filename {
@@ -97,10 +97,10 @@ impl Render for TextRender {
                                         .then(|| format!(
                                             "{}{}",
                                             ":".cyan(),
-                                            if r.row + i + 1 > result.lines.len() - 1 {
+                                            if r.start.row + i + 1 > result.lines.len() - 1 {
                                                 result.lines.len() - 1
                                             } else {
-                                                r.row + i + 1
+                                                r.start.row + i + 1
                                             }
                                         ))
                                         .unwrap_or("".to_string()),
@@ -146,14 +146,14 @@ mod tests {
     use super::*;
     use crate::{
         node::{Node, Nodes},
-        source::LineResult,
+        source::{LineResult, Position},
     };
     use rstest::rstest;
 
     #[rstest]
     #[case(
         vec!["class Test".to_string()],
-        vec![LineResult {line: "class Test".to_string(), row: 0, column_start: 6, column_end: 8, nodes: Nodes::new(vec![Node::Class])}],
+        vec![LineResult {line: "class Test".to_string(), start: Position{row:0, column: 6}, end: Position{row:0, column: 8}, nodes: Nodes::new(vec![Node::Class])}],
         false,
         false,
         false,
@@ -163,7 +163,7 @@ mod tests {
     )]
     #[case(
         vec!["class Test".to_string()],
-        vec![LineResult {line: "class Test".to_string(), row: 0, column_start: 6, column_end: 8, nodes: Nodes::new(vec![Node::Class])}],
+        vec![LineResult {line: "class Test".to_string(), start: Position{row:0, column: 6}, end: Position{row:0, column: 8}, nodes: Nodes::new(vec![Node::Class])}],
         false,
         true,
         false,
@@ -173,7 +173,7 @@ mod tests {
     )]
     #[case(
         vec!["class Test".to_string()],
-        vec![LineResult {line: "class Test".to_string(), row: 0, column_start: 6, column_end: 8, nodes: Nodes::new(vec![Node::Class])}],
+        vec![LineResult {line: "class Test".to_string(), start: Position{row:0, column: 6}, end: Position{row:0, column: 8}, nodes: Nodes::new(vec![Node::Class])}],
         false,
         true,
         true,
@@ -184,7 +184,7 @@ mod tests {
     // before_context
     #[case(
         vec!["class Test"," def test", "end"].iter().map(|x| x.to_string()).collect(),
-        vec![LineResult {line: "def test".to_string(), row: 1, column_start: 5, column_end: 8, nodes: Nodes::new(vec![Node::Class])}],
+        vec![LineResult {line: "def test".to_string(), start: Position{row: 1, column: 5}, end: Position{row:1, column: 8}, nodes: Nodes::new(vec![Node::Class])}],
         false,
         true,
         true,
@@ -194,7 +194,7 @@ mod tests {
     )]
     #[case(
         vec!["class Test"," def test", "end"].iter().map(|x| x.to_string()).collect(),
-        vec![LineResult {line: "def test".to_string(), row: 1, column_start: 5, column_end: 8, nodes: Nodes::new(vec![Node::Class])}],
+        vec![LineResult {line: "def test".to_string(), start: Position{row: 1, column: 5}, end: Position{row:1, column: 8}, nodes: Nodes::new(vec![Node::Class])}],
         false,
         false,
         false,
@@ -205,7 +205,7 @@ mod tests {
     // after_context
     #[case(
         vec!["class Test", "def test", "end"].iter().map(|x| x.to_string()).collect(),
-        vec![LineResult {line: "def test".to_string(), row: 1, column_start: 5, column_end: 8, nodes: Nodes::new(vec![Node::Class])}],
+        vec![LineResult {line: "def test".to_string(), start: Position{row: 1, column: 5}, end: Position{row:1, column: 8}, nodes: Nodes::new(vec![Node::Class])}],
         false,
         true,
         true,
@@ -215,7 +215,7 @@ mod tests {
     )]
     #[case(
         vec!["class Test", "def test", "end"].iter().map(|x| x.to_string()).collect(),
-        vec![LineResult {line: "def test".to_string(), row: 1, column_start: 5, column_end: 8, nodes: Nodes::new(vec![Node::Class])}],
+        vec![LineResult {line: "def test".to_string(), start: Position{row: 1, column: 5}, end: Position{row:0, column: 8}, nodes: Nodes::new(vec![Node::Class])}],
         false,
         false,
         false,
@@ -226,7 +226,7 @@ mod tests {
     //with_nodes
     #[case(
         vec!["class Test", "def test", "end"].iter().map(|x| x.to_string()).collect(),
-        vec![LineResult {line: "def test".to_string(), row: 1, column_start: 5, column_end: 8, nodes: Nodes::new(vec![Node::Class, Node::Def])}],
+        vec![LineResult {line: "def test".to_string(), start: Position{row: 1, column: 5}, end: Position{row:1, column: 8}, nodes: Nodes::new(vec![Node::Class, Node::Def])}],
         true,
         false,
         false,
@@ -236,7 +236,7 @@ mod tests {
     )]
     #[case(
         vec!["class Test", "def test", "end"].iter().map(|x| x.to_string()).collect(),
-        vec![LineResult {line: "def test".to_string(), row: 1, column_start: 5, column_end: 8, nodes: Nodes::new(vec![Node::Class, Node::Def])}],
+        vec![LineResult {line: "def test".to_string(), start: Position{row: 1, column: 5}, end: Position{row:1, column: 8}, nodes: Nodes::new(vec![Node::Class, Node::Def])}],
         true,
         true,
         true,

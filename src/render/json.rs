@@ -19,7 +19,7 @@ mod tests {
     use super::*;
     use crate::{
         node::{Node, Nodes},
-        source::LineResult,
+        source::{LineResult, Position},
     };
     use rstest::rstest;
 
@@ -38,13 +38,13 @@ mod tests {
     #[rstest]
     #[case(
         vec!["class Test".to_string()],
-        vec![LineResult {line:"class Test".to_string(), row: 0, column_start: 6, column_end: 8, nodes:Nodes::new(vec![Node::Class])}],
-        "{\"fileName\":\"file\",\"results\":[{\"line\":\"class Test\",\"row\":0,\"nodes\":[\"Class\"],\"columnStart\":6,\"columnEnd\":8}]}".to_string(),
+        vec![LineResult {line:"class Test".to_string(), start: Position{row:0, column: 6}, end: Position{row:0, column: 8}, nodes:Nodes::new(vec![Node::Class])}],
+        "{\"fileName\":\"file\",\"results\":[{\"line\":\"class Test\",\"nodes\":[\"Class\"],\"start\":{\"row\":0,\"column\":6},\"end\":{\"row\":0,\"column\":8}}]}"
     )]
     #[case(
         vec!["class Test".to_string()],
-        vec![LineResult {line:"class Test".to_string(), row: 0, column_start: 6, column_end: 8, nodes: Nodes::new(vec![Node::Class])}],
-        "{\"fileName\":\"file\",\"results\":[{\"line\":\"class Test\",\"row\":0,\"nodes\":[\"Class\"],\"columnStart\":6,\"columnEnd\":8}]}".to_string(),
+        vec![LineResult {line:"class Test".to_string(), start: Position{row:0, column: 6}, end: Position{row:0, column: 8}, nodes: Nodes::new(vec![Node::Class])}],
+        "{\"fileName\":\"file\",\"results\":[{\"line\":\"class Test\",\"nodes\":[\"Class\"],\"start\":{\"row\":0,\"column\":6},\"end\":{\"row\":0,\"column\":8}}]}"
     )]
     fn test_render_json(
         #[case] lines: Vec<String>,

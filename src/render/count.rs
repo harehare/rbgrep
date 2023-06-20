@@ -28,20 +28,20 @@ mod tests {
     use super::*;
     use crate::{
         node::{Node, Nodes},
-        source::LineResult,
+        source::{LineResult, Position},
     };
     use rstest::rstest;
 
     #[rstest]
     #[case(
         vec!["class Test".to_string()],
-        vec![LineResult {line: "class Test".to_string(), row: 0, column_start: 6, column_end: 8, nodes: Nodes::new(vec![Node::Class])}],
+        vec![LineResult {line: "class Test".to_string(), start: Position{row:0, column: 6}, end: Position{row:0, column: 8}, nodes: Nodes::new(vec![Node::Class])}],
         false,
         "1\n".to_string(),
     )]
     #[case(
         vec!["class Test".to_string()],
-        vec![LineResult {line: "class Test".to_string(), row: 0, column_start: 6, column_end: 8, nodes: Nodes::new(vec![Node::Class])}],
+        vec![LineResult {line: "class Test".to_string(), start: Position{row:0, column: 6}, end: Position{row:0, column: 8}, nodes: Nodes::new(vec![Node::Class])}],
         true,
         "file:1\n".to_string(),
     )]
