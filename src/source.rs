@@ -135,7 +135,7 @@ impl LineResult {
             let match_text = &self
                 .line
                 .get(start_index..end_index)
-                .unwrap_or(&self.line.get(start_index..).unwrap_or(&self.line));
+                .unwrap_or(self.line.get(start_index..).unwrap_or(&self.line));
 
             let end_index = if match_text.starts_with('"')
                 || match_text.starts_with('\'')
