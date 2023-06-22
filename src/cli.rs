@@ -1,6 +1,6 @@
 use crate::matcher::{RegexMatcher, TextMatcher};
 use crate::node::Node;
-use crate::render::{CountRender, JsonRender, QuietRender, Render, TextRender};
+use crate::render::{CountRender, CsvRender, JsonRender, QuietRender, Render, TextRender};
 use crate::source::{GrepOptions, GrepResult, Source};
 use anyhow::Result;
 use clap::Parser;
@@ -115,8 +115,16 @@ pub struct Cli {
     max_depth: Option<usize>,
 
     /// Show search results in a JSON format.
-    #[arg(short, long)]
+    #[arg(long)]
     json: bool,
+
+    /// Show search results in a CSV format.
+    #[arg(long)]
+    csv: bool,
+
+    /// Specify the CSV delimiter.
+    #[arg(long)]
+    csv_delimiter: Option<String>,
 
     /// Do not output matched lines. instead, exit with status 0 when there is a match and with non-zero status when there isn’t.
     #[arg(short, long)]
@@ -162,6 +170,10 @@ impl Cli {
             Arc::new(QuietRender {})
         } else if self.json {
             Arc::new(JsonRender {})
+        } else if self.csv {
+            Arc::new(CsvRender {
+                delimiter: self.csv_delimiter.clone(),
+            })
         } else {
             Arc::new(TextRender {
                 with_nodes: self.with_nodes,
@@ -376,6 +388,8 @@ mod tests {
             path: Some(vec![dir.to_str().unwrap().to_string()]),
             stdin: None,
             json: false,
+            csv: false,
+            csv_delimiter: None,
             pattern: None,
         };
 
@@ -431,6 +445,8 @@ mod tests {
             path: Some(vec![file.path().to_str().unwrap().to_string()]),
             stdin: is_stdin.then_some(MaybeStdIn::from_str(text.as_str()).unwrap()),
             json: false,
+            csv: false,
+            csv_delimiter: None,
             pattern: None,
         };
 
