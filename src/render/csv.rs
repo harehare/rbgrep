@@ -1,16 +1,13 @@
-use std::io;
-
-use anyhow::{anyhow, Result};
-
 use crate::render::Render;
 use crate::source::FileResult;
+use std::io;
 
 pub struct CsvRender {
     pub delimiter: Option<String>,
 }
 
 impl Render for CsvRender {
-    fn render(&self, w: &mut dyn io::Write, result: &FileResult) -> Result<()> {
+    fn render(&self, w: &mut dyn io::Write, result: &FileResult) -> Result<(), io::Error> {
         let delimiter = self.delimiter.clone().unwrap_or(",".to_string());
         let lines = result
             .results
@@ -38,7 +35,6 @@ impl Render for CsvRender {
             .join("");
 
         w.write_all(lines.as_bytes())
-            .map_err(|_| anyhow!("Failed write"))
     }
 }
 

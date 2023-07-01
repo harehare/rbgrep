@@ -1,25 +1,21 @@
-use std::io;
-
-use anyhow::{anyhow, Result};
-use colored::*;
-
 use crate::render::Render;
 use crate::source::FileResult;
+use colored::*;
+use std::io;
 
 pub struct CountRender {
     pub with_filename: bool,
 }
 
 impl Render for CountRender {
-    fn render(&self, w: &mut dyn io::Write, result: &FileResult) -> Result<()> {
-        (if self.with_filename {
+    fn render(&self, w: &mut dyn io::Write, result: &FileResult) -> Result<(), io::Error> {
+        if self.with_filename {
             w.write_all(
                 format!("{}:{}\n", result.filename.magenta(), result.results.len()).as_bytes(),
             )
         } else {
             w.write_all(format!("{}\n", result.results.len()).as_bytes())
-        })
-        .map_err(|_| anyhow!("Failed write"))
+        }
     }
 }
 

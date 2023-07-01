@@ -1,16 +1,12 @@
-use std::io;
-
-use anyhow::{anyhow, Result};
-
 use crate::render::Render;
 use crate::source::FileResult;
+use std::io;
 
 pub struct JsonRender {}
 
 impl Render for JsonRender {
-    fn render(&self, w: &mut dyn io::Write, result: &FileResult) -> Result<()> {
+    fn render(&self, w: &mut dyn io::Write, result: &FileResult) -> Result<(), io::Error> {
         w.write_all(serde_json::to_string(&result)?.as_bytes())
-            .map_err(|_| anyhow!("write failed"))
     }
 }
 

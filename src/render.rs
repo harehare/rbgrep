@@ -1,7 +1,5 @@
 use std::io;
 
-use anyhow::Result;
-
 use crate::source::FileResult;
 
 mod text;
@@ -20,5 +18,5 @@ mod csv;
 pub use self::csv::CsvRender;
 
 pub trait Render: Send + Sync + 'static {
-    fn render(&self, w: &mut dyn io::Write, result: &FileResult) -> Result<()>;
+    fn render(&self, w: &mut dyn io::Write, result: &FileResult) -> Result<(), io::Error>;
 }

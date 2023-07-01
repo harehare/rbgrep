@@ -1,10 +1,7 @@
-use std::io;
-
-use anyhow::{anyhow, Result};
-use colored::*;
-
 use crate::render::Render;
 use crate::source::FileResult;
+use colored::*;
+use std::io;
 
 pub struct TextRender {
     pub with_nodes: bool,
@@ -17,7 +14,7 @@ pub struct TextRender {
 }
 
 impl Render for TextRender {
-    fn render(&self, w: &mut dyn io::Write, result: &FileResult) -> Result<()> {
+    fn render(&self, w: &mut dyn io::Write, result: &FileResult) -> Result<(), io::Error> {
         let result_lines = result
             .results
             .iter()
@@ -70,7 +67,11 @@ impl Render for TextRender {
                         "{}{} {}\n",
                         result.filename.magenta(),
                         self.with_lineno
-                            .then(|| format!("{}{}", ":".cyan(), (r.start.row + 1).to_string().cyan()))
+                            .then(|| format!(
+                                "{}{}",
+                                ":".cyan(),
+                                (r.start.row + 1).to_string().cyan()
+                            ))
                             .unwrap_or("".to_string()),
                         r.to_result_string(self.only_matching),
                     ))
@@ -137,7 +138,6 @@ impl Render for TextRender {
             .join("");
 
         w.write_all(result_lines.as_bytes())
-            .map_err(|_| anyhow!("Failed write"))
     }
 }
 
