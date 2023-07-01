@@ -253,18 +253,15 @@ impl Cli {
 
     fn print(&self, result: &GrepResult, render: Arc<dyn Render>) {
         let mut out = BufWriter::new(stdout().lock());
-        match match result {
+        if let Err(e) = match result {
             GrepResult::FileResult(r) => render.render(&mut out, r),
             GrepResult::FileErrorResult(errors) => {
                 out.write_all(format!("{}\n", errors).as_bytes())
             }
         } {
-            Err(e) => {
-                if e.kind() == std::io::ErrorKind::BrokenPipe {
-                    std::process::exit(1);
-                }
+            if e.kind() == std::io::ErrorKind::BrokenPipe {
+                std::process::exit(1);
             }
-            _ => {}
         }
     }
 
