@@ -126,6 +126,10 @@ pub struct Cli {
     #[arg(long)]
     csv_delimiter: Option<String>,
 
+    /// Show search results in a TSV format.
+    #[arg(long)]
+    tsv: bool,
+
     /// Do not output matched lines. instead, exit with status 0 when there is a match and with non-zero status when there isn’t.
     #[arg(short, long)]
     quiet: bool,
@@ -173,6 +177,10 @@ impl Cli {
         } else if self.csv {
             Arc::new(CsvRender {
                 delimiter: self.csv_delimiter.clone(),
+            })
+        } else if self.tsv {
+            Arc::new(CsvRender {
+                delimiter: Some("\t".to_string()),
             })
         } else {
             Arc::new(TextRender {
@@ -389,6 +397,7 @@ mod tests {
             stdin: None,
             json: false,
             csv: false,
+            tsv: false,
             csv_delimiter: None,
             pattern: None,
         };
@@ -447,6 +456,7 @@ mod tests {
             json: false,
             csv: false,
             csv_delimiter: None,
+            tsv: false,
             pattern: None,
         };
 

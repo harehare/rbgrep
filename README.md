@@ -83,6 +83,8 @@ Options:
           Show search results in a CSV format
       --csv-delimiter <CSV_DELIMITER>
           Specify the CSV delimiter
+      --tsv
+          Show search results in a TSV format
   -q, --quiet
           Do not output matched lines. instead, exit with status 0 when there is a match and with non-zero status when there isn’t
   -p, --path <PATH>
