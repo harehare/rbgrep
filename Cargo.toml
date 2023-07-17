@@ -27,5 +27,5 @@ strum_macros = "0.24.3"
 tap = "1.0.1"
 
 [dev-dependencies]
-rstest = "0.17.0"
+rstest = "0.18.1"
 tempfile = "3.5.0"
