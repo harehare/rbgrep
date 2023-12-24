@@ -10,7 +10,7 @@ name = "rbgrep"
 path = "./src/main.rs"
 
 [dependencies]
-anyhow = "1.0.70"
+anyhow = "1.0.72"
 clap = {version = "4.2.1", features = ["derive"]}
 clap-stdin = "0.1.1"
 colored = "2.0.0"
