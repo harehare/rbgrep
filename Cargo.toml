@@ -19,7 +19,7 @@ ignore = "0.4"
 itertools = "0.10.5"
 lib-ruby-parser = "4.0.4"
 rayon = "1.7.0"
-regex = "1.7.3"
+regex = "1.9.1"
 serde = {version = "1.0.163", features = ["derive"]}
 serde_json = "1.0.96"
 strum = "0.24.1"
