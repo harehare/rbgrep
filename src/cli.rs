@@ -217,7 +217,7 @@ impl Cli {
                                 self.print(&r, render);
                                 vec![r]
                             })
-                            .unwrap_or(vec![])
+                            .unwrap_or_default()
                     }
                     None => path_list
                         .par_iter()
